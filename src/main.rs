@@ -6,6 +6,7 @@ extern crate tracing;
 
 use clap::Parser;
 use color_eyre::eyre::{ensure, Result};
+use itertools::Itertools;
 use std::{fs, path::PathBuf};
 
 mod build;
@@ -127,8 +128,13 @@ fn main() -> Result<()> {
         },
     )?;
     if let Some(arg_benchmarks) = &cli.benchmarks {
+        let known = benchmarks.iter().map(|r| &r.name);
+        let unknown = arg_benchmarks
+            .iter()
+            .filter(|&arg| !known.clone().any(|r| arg == r))
+            .collect::<Vec<_>>();
+        ensure!(unknown.is_empty(), "unknown benchmarks(s): {}", unknown.iter().format(", "));
         benchmarks.retain(|b| arg_benchmarks.contains(&b.name));
-        ensure!(!benchmarks.is_empty(), "no benchmarks matched the given names");
     }
     benchmarks.sort_by(|a, b| a.name.cmp(&b.name));
 
@@ -136,8 +142,11 @@ fn main() -> Result<()> {
     let mut runners =
         find_runners(&cli.runner_metadata_name, &cli.runner_metadata_schema, &runners_path, ())?;
     if let Some(arg_runners) = &cli.runners {
+        let known = runners.iter().map(|r| &r.name);
+        let unknown =
+            arg_runners.iter().filter(|&arg| !known.clone().any(|r| arg == r)).collect::<Vec<_>>();
+        ensure!(unknown.is_empty(), "unknown runner(s): {}", unknown.iter().format(", "));
         runners.retain(|r| arg_runners.contains(&r.name));
-        ensure!(!runners.is_empty(), "no runners matched the given names");
     }
     runners.sort_by(|a, b| a.name.cmp(&b.name));
 

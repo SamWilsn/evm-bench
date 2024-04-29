@@ -32,12 +32,10 @@ fn main() {
 
     let creation_code_hex =
         fs::read_to_string(args.contract_code_path).expect("failed to read code path");
-    let creation_code: Bytes = hex::decode(creation_code_hex.trim())
-        .expect("could not hex decode contract code")
-        .into();
-    let calldata: Bytes = hex::decode(args.calldata.trim())
-        .expect("could not hex decode calldata")
-        .into();
+    let creation_code: Bytes =
+        hex::decode(creation_code_hex.trim()).expect("could not hex decode contract code").into();
+    let calldata: Bytes =
+        hex::decode(args.calldata.trim()).expect("could not hex decode calldata").into();
 
     let caller = address!("1000000000000000000000000000000000000001");
 
@@ -59,22 +57,15 @@ fn main() {
     };
 
     // Run the created bytecode with just the interpreter.
-    let created_bytecode = state[&created_address]
-        .info
-        .code
-        .as_ref()
-        .expect("failed creation");
+    let created_bytecode = state[&created_address].info.code.as_ref().expect("failed creation");
 
     let mut run_env = Env::default();
     run_env.tx.caller = caller;
     run_env.tx.transact_to = TransactTo::call(created_address);
     run_env.tx.data = calldata;
 
-    let contract = Contract::new_env(
-        &run_env,
-        created_bytecode.clone(),
-        created_bytecode.hash_slow(),
-    );
+    let contract =
+        Contract::new_env(&run_env, created_bytecode.clone(), created_bytecode.hash_slow());
     let mut host = DummyHost::new(run_env);
     let table = &make_instruction_table::<_, LatestSpec>();
 

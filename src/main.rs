@@ -1,22 +1,24 @@
-use std::{error, fs, path::PathBuf, process::exit};
-
-extern crate glob;
-
 use clap::Parser;
-use results::{print_results, record_results};
+use std::{
+    error, fs,
+    path::{Path, PathBuf},
+    process::exit,
+};
 
 mod build;
-mod exec;
-mod metadata;
-mod results;
-mod run;
+use build::build_benchmarks;
 
-use crate::{
-    build::build_benchmarks,
-    exec::validate_executable,
-    metadata::{find_benchmarks, find_runners, BenchmarkDefaults},
-    run::run_benchmarks_on_runners,
-};
+mod exec;
+use exec::validate_executable;
+
+mod metadata;
+use metadata::{find_benchmarks, find_runners, BenchmarkDefaults};
+
+mod results;
+use results::{print_results, record_results};
+
+mod run;
+use run::run_benchmarks_on_runners;
 
 /// Ethereum Virtual Machine Benchmark (evm-bench)
 #[derive(Parser, Debug)]
@@ -99,11 +101,11 @@ fn main() {
 
     (|| -> Result<(), Box<dyn error::Error>> {
         let docker_executable = validate_executable("docker", &args.docker_executable)?;
-        let _ = validate_executable("cargo", &PathBuf::from("cargo"))?;
-        let _ = validate_executable("poetry", &PathBuf::from("poetry"))?;
-        let _ = validate_executable("python3", &PathBuf::from(args.cpython_executable))?;
-        let _ = validate_executable("pypy3", &PathBuf::from(args.pypy_executable))?;
-        let _ = validate_executable("npm", &PathBuf::from(args.npm_executable))?;
+        let _ = validate_executable("cargo", Path::new("cargo"))?;
+        let _ = validate_executable("poetry", Path::new("poetry"))?;
+        let _ = validate_executable("python3", &args.cpython_executable)?;
+        let _ = validate_executable("pypy3", &args.pypy_executable)?;
+        let _ = validate_executable("npm", &args.npm_executable)?;
 
         let default_calldata = hex::decode(args.default_calldata_str.to_string())?;
 
@@ -120,10 +122,9 @@ fn main() {
         )?;
         let mut benchmarks = match args.benchmarks {
             None => benchmarks,
-            Some(arg_benchmarks) => benchmarks
-                .into_iter()
-                .filter(|b| arg_benchmarks.contains(&b.name))
-                .collect(),
+            Some(arg_benchmarks) => {
+                benchmarks.into_iter().filter(|b| arg_benchmarks.contains(&b.name)).collect()
+            }
         };
         benchmarks.sort_by_key(|b| b.name.clone());
 
@@ -136,10 +137,9 @@ fn main() {
         )?;
         let mut runners = match args.runners {
             None => runners,
-            Some(arg_runners) => runners
-                .into_iter()
-                .filter(|r| arg_runners.contains(&r.name))
-                .collect(),
+            Some(arg_runners) => {
+                runners.into_iter().filter(|r| arg_runners.contains(&r.name)).collect()
+            }
         };
         runners.sort_by_key(|b| b.name.clone());
 

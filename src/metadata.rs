@@ -1,4 +1,5 @@
 use glob::glob;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
@@ -26,12 +27,7 @@ where
     ) -> Result<Self, Box<dyn error::Error>> {
         let json_file = fs::File::open(json_path)?;
         let json = serde_json::from_reader(&json_file)?;
-        Self::parse(
-            json_path.parent().ok_or("could not get parent")?,
-            schema,
-            &json,
-            defaults,
-        )
+        Self::parse(json_path.parent().ok_or("could not get parent")?, schema, &json, defaults)
     }
 
     fn parse(
@@ -89,10 +85,9 @@ impl MetadataParser for Benchmark {
                 .to_string(),
             solc_version: object
                 .get("solc-version")
-                .map_or(
-                    Ok::<&str, Box<dyn error::Error>>(&defaults.solc_version),
-                    |x| Ok(x.as_str().ok_or("could not parse solc-version as string")?),
-                )?
+                .map_or(Ok::<&str, Box<dyn error::Error>>(&defaults.solc_version), |x| {
+                    Ok(x.as_str().ok_or("could not parse solc-version as string")?)
+                })?
                 .to_string(),
             num_runs: object
                 .get("num-runs")
@@ -112,20 +107,15 @@ impl MetadataParser for Benchmark {
                 .join(PathBuf::from(object.get("build-context").map_or(
                     Ok::<String, Box<dyn error::Error>>(".".into()),
                     |x| {
-                        Ok(x.as_str()
-                            .ok_or("could not parse build-context as string")?
-                            .to_string())
+                        Ok(x.as_str().ok_or("could not parse build-context as string")?.to_string())
                     },
                 )?))
                 .canonicalize()?,
-            calldata: object.get("calldata").map_or(
-                Ok::<Vec<u8>, Box<dyn error::Error>>(defaults.calldata.clone()),
-                |x| {
-                    Ok(hex::decode(
-                        x.as_str().ok_or("could not parse calldata as bytes")?,
-                    )?)
-                },
-            )?,
+            calldata: object
+                .get("calldata")
+                .map_or(Ok::<Vec<u8>, Box<dyn error::Error>>(defaults.calldata.clone()), |x| {
+                    Ok(hex::decode(x.as_str().ok_or("could not parse calldata as bytes")?)?)
+                })?,
         };
         log::debug!("parsed benchmark metadata: {}", &benchmark.name);
         log::trace!("benchmark metadata: {:?}", benchmark);
@@ -185,36 +175,31 @@ fn find_metadata<T: MetadataParser>(
         return Err(format!("{} is not a directory", search_path.display()).into());
     }
 
-    Ok(
-        glob(&search_path.join("**").join(file_name).to_string_lossy())?
-            .flat_map(|entry| match entry {
-                Ok(path) => {
-                    log::debug!(
-                        "found {}",
-                        path.strip_prefix(&search_path).unwrap_or(&path).display()
-                    );
-                    Some(path)
-                }
-                Err(e) => {
-                    log::warn!("error globing file: {:?}", e);
-                    None
-                }
-            })
-            .flat_map(|path| match T::parse_from_file(&schema, &path, &defaults) {
-                Ok(res) => {
-                    log::debug!(
-                        "parsed {}",
-                        path.strip_prefix(&search_path).unwrap_or(&path).display()
-                    );
-                    Some(res)
-                }
-                Err(e) => {
-                    log::warn!("error parsing file: {:?}", e);
-                    None
-                }
-            })
-            .collect(),
-    )
+    Ok(glob(&search_path.join("**").join(file_name).to_string_lossy())?
+        .flat_map(|entry| match entry {
+            Ok(path) => {
+                log::debug!("found {}", path.strip_prefix(&search_path).unwrap_or(&path).display());
+                Some(path)
+            }
+            Err(e) => {
+                log::warn!("error globing file: {:?}", e);
+                None
+            }
+        })
+        .flat_map(|path| match T::parse_from_file(&schema, &path, &defaults) {
+            Ok(res) => {
+                log::debug!(
+                    "parsed {}",
+                    path.strip_prefix(&search_path).unwrap_or(&path).display()
+                );
+                Some(res)
+            }
+            Err(e) => {
+                log::warn!("error parsing file: {:?}", e);
+                None
+            }
+        })
+        .collect())
 }
 
 pub fn find_benchmarks(
@@ -225,21 +210,14 @@ pub fn find_benchmarks(
 ) -> Result<Vec<Benchmark>, Box<dyn error::Error>> {
     let benchmarks =
         find_metadata::<Benchmark>(file_name, schema_path, search_path, benchmark_defaults)?;
-    let benchmark_names = benchmarks
-        .iter()
-        .map(|b| b.name.clone())
-        .collect::<HashSet<_>>();
+    let benchmark_names = benchmarks.iter().map(|b| b.name.clone()).collect::<HashSet<_>>();
     if benchmark_names.len() != benchmarks.len() {
         Err("found duplicate benchmark names".into())
     } else {
         log::info!(
             "found {} benchmarks: {}",
             benchmarks.len(),
-            benchmark_names
-                .iter()
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(", ")
+            benchmark_names.iter().cloned().collect::<Vec<_>>().join(", ")
         );
         Ok(benchmarks)
     }
@@ -252,18 +230,10 @@ pub fn find_runners(
     runner_defaults: (),
 ) -> Result<Vec<Runner>, Box<dyn error::Error>> {
     let runners = find_metadata::<Runner>(file_name, schema_path, search_path, runner_defaults)?;
-    let runner_names = runners
-        .iter()
-        .map(|b| b.name.clone())
-        .collect::<HashSet<_>>();
+    let runner_names = runners.iter().map(|b| &b.name).collect::<HashSet<_>>();
     if runner_names.len() != runners.len() {
-        Err("found duplicate runners names".into())
-    } else {
-        log::info!(
-            "found {} runners: {}",
-            runners.len(),
-            runner_names.iter().cloned().collect::<Vec<_>>().join(", ")
-        );
-        Ok(runners)
+        return Err("found duplicate runners names".into());
     }
+    log::info!("found {} runners: {}", runners.len(), runner_names.iter().format(", "));
+    Ok(runners)
 }

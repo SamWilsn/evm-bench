@@ -31,12 +31,7 @@ fn build_benchmark(
     benchmark: &Benchmark,
     build_context: &BuildContext,
 ) -> Result<BuiltBenchmark, Box<dyn error::Error>> {
-    let contract_name = benchmark
-        .contract
-        .file_name()
-        .unwrap()
-        .to_string_lossy()
-        .to_string();
+    let contract_name = benchmark.contract.file_name().unwrap().to_string_lossy().to_string();
 
     log::info!(
         "building benchmark {} ({contract_name} w/ solc@{})...",
@@ -44,9 +39,8 @@ fn build_benchmark(
         benchmark.solc_version
     );
 
-    let relative_contract_path = build_context
-        .contract_path
-        .strip_prefix(&build_context.contract_context_path)?;
+    let relative_contract_path =
+        build_context.contract_path.strip_prefix(&build_context.contract_context_path)?;
 
     let docker_contract_context_path = PathBuf::from("/benchmark");
     let docker_contract_path = docker_contract_context_path.join(relative_contract_path);
@@ -56,10 +50,7 @@ fn build_benchmark(
 
     let mut cmd = Command::new(&build_context.docker_executable);
     cmd.arg("run")
-        .args([
-            "-u",
-            &format!("{}:{}", get_current_uid(), get_current_gid()),
-        ])
+        .args(["-u", &format!("{}:{}", get_current_uid(), get_current_gid())])
         .args([
             "-v",
             &format!(
@@ -93,10 +84,7 @@ fn build_benchmark(
     contract_bin_path.set_extension("bin");
 
     log::debug!("built benchmark {}", benchmark.name);
-    Ok(BuiltBenchmark {
-        benchmark: benchmark.clone(),
-        result: BuildResult { contract_bin_path },
-    })
+    Ok(BuiltBenchmark { benchmark: benchmark.clone(), result: BuildResult { contract_bin_path } })
 }
 
 pub fn build_benchmarks(
@@ -104,20 +92,10 @@ pub fn build_benchmarks(
     docker_executable: &Path,
     builds_path: &Path,
 ) -> Result<Vec<BuiltBenchmark>, Box<dyn error::Error>> {
-    let benchmark_names = benchmarks
-        .iter()
-        .map(|b| b.name.clone())
-        .collect::<HashSet<_>>();
+    let benchmark_names = benchmarks.iter().map(|b| b.name.clone()).collect::<HashSet<_>>();
 
     log::info!("building {} benchmarks...", benchmarks.len());
-    log::debug!(
-        "benchmarks: {}",
-        benchmark_names
-            .iter()
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
+    log::debug!("benchmarks: {}", benchmark_names.iter().cloned().collect::<Vec<_>>().join(", "));
 
     let mut results = Vec::<BuiltBenchmark>::new();
     for benchmark in benchmarks {
@@ -140,10 +118,6 @@ pub fn build_benchmarks(
         );
     }
 
-    log::debug!(
-        "built {} benchmarks ({} successful)",
-        benchmarks.len(),
-        results.len()
-    );
+    log::debug!("built {} benchmarks ({} successful)", benchmarks.len(), results.len());
     Ok(results)
 }

@@ -5,7 +5,7 @@ use crate::{
 use color_eyre::eyre::Result;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -29,11 +29,13 @@ pub fn record_results(
 
     fs::create_dir_all(results_path)?;
 
-    let runners: HashSet<&Runner> = results.values().flat_map(HashMap::keys).collect();
-
     let results_formatted = ResultsFormatted {
         benchmarks: results.keys().map(|b| (b.name.clone(), b.clone())).collect(),
-        runners: runners.into_iter().map(|r| (r.name.clone(), r.clone())).collect(),
+        runners: results
+            .values()
+            .flat_map(HashMap::keys)
+            .map(|r| (r.name.clone(), r.clone()))
+            .collect(),
         runs: results
             .iter()
             .map(|(b, br)| {
@@ -101,19 +103,18 @@ pub fn print_results(results_file_path: &Path) -> Result<()> {
     );
     builder.push_record(record);
 
-    let min_runner_time = average_runner_times.values().min().unwrap();
+    let min_runner_time =
+        average_runner_times.values().min().copied().unwrap_or(Duration::from_secs(1));
     let mut record = vec!["**relative**".to_string()];
     record.extend(
         runner_names
             .iter()
-            .map(|runner_name| {
-                Some(
-                    average_runner_times.get(runner_name)?.as_secs_f64()
-                        / min_runner_time.as_secs_f64(),
-                )
+            .map(|name| {
+                average_runner_times.get(name).map(|time| {
+                    format!("{:>9.3?}", time.as_secs_f64() / min_runner_time.as_secs_f64())
+                })
             })
-            .map(|val| Some(format!("{:>9.3?}x", val?)))
-            .map(|s| s.unwrap_or_default()),
+            .map(Option::unwrap_or_default),
     );
     builder.push_record(record);
 
@@ -127,8 +128,7 @@ pub fn print_results(results_file_path: &Path) -> Result<()> {
         });
 
         let mut record = vec![benchmark_name.clone()];
-        record
-            .extend(vals.map(|val| Some(format!("{:>9.3?}", val?))).map(|s| s.unwrap_or_default()));
+        record.extend(vals.map(|val| val.map(|time| format!("{time:>9.3?}")).unwrap_or_default()));
         builder.push_record(record);
     }
 

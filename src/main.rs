@@ -5,11 +5,8 @@
 extern crate tracing;
 
 use clap::Parser;
-use color_eyre::eyre::Result;
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use color_eyre::eyre::{ensure, Result};
+use std::{fs, path::PathBuf};
 
 mod build;
 use build::build_benchmarks;
@@ -26,10 +23,9 @@ use results::{print_results, record_results};
 mod run;
 use run::run_benchmarks_on_runners;
 
-/// Ethereum Virtual Machine Benchmark (evm-bench)
+/// Ethereum Virtual Machine Benchmark
 #[derive(Debug, Parser)]
-#[command(author, version, about, long_about = None)]
-struct Args {
+struct Cli {
     /// Path to use as the base for benchmarks searching
     #[arg(long, default_value = "./benchmarks")]
     benchmark_search_path: PathBuf,
@@ -56,20 +52,20 @@ struct Args {
     output_file_name: Option<String>,
 
     /// Path to a Docker executable (this is used for solc)
-    #[arg(long, default_value = "docker")]
-    docker_executable: PathBuf,
+    #[arg(long)]
+    docker_executable: Option<PathBuf>,
 
     /// Path to a CPython executable (this is used for runners)
-    #[arg(long, default_value = "python3")]
-    cpython_executable: PathBuf,
+    #[arg(long)]
+    cpython_executable: Option<PathBuf>,
 
     /// Path to a PyPy executable (this is used for runners)
-    #[arg(long, default_value = "pypy3")]
-    pypy_executable: PathBuf,
+    #[arg(long)]
+    pypy_executable: Option<PathBuf>,
 
     /// Path to a NPM executable (this is used for runners)
-    #[arg(long, default_value = "npm")]
-    npm_executable: PathBuf,
+    #[arg(long)]
+    npm_executable: Option<PathBuf>,
 
     /// Path to benchmark metadata schema
     #[arg(long, default_value = "./benchmarks/schema.json")]
@@ -98,64 +94,66 @@ struct Args {
     /// Default calldata to use if none specified in the benchmark metadata
     #[arg(long, default_value = "")]
     default_calldata_str: String,
+
+    /// Always build benchmarks, even if they are already built
+    #[arg(long)]
+    force_build: bool,
 }
 
 fn main() -> Result<()> {
+    let _ = color_eyre::install();
     let _ = init_tracing_subscriber();
 
-    let args = Args::parse();
+    let cli = Cli::parse();
 
-    let docker_executable = validate_executable("docker", &args.docker_executable)?;
-    let _ = validate_executable("cargo", Path::new("cargo"))?;
-    let _ = validate_executable("poetry", Path::new("poetry"))?;
-    let _ = validate_executable("python3", &args.cpython_executable)?;
-    let _ = validate_executable("pypy3", &args.pypy_executable)?;
-    let _ = validate_executable("npm", &args.npm_executable)?;
+    let docker_executable = validate_executable("docker", cli.docker_executable.as_deref())?;
+    let _ = validate_executable("cargo", None)?;
+    let _ = validate_executable("poetry", None)?;
+    let _ = validate_executable("python3", cli.cpython_executable.as_deref())?;
+    let _ = validate_executable("pypy3", cli.pypy_executable.as_deref())?;
+    let _ = validate_executable("npm", cli.npm_executable.as_deref())?;
 
-    let default_calldata = alloy_primitives::hex::decode(&args.default_calldata_str)?;
+    let default_calldata = alloy_primitives::hex::decode(&cli.default_calldata_str)?;
 
-    let benchmarks_path = args.benchmark_search_path.canonicalize()?;
-    let benchmarks = find_benchmarks(
-        &args.benchmark_metadata_name,
-        &args.benchmark_metadata_schema,
+    let benchmarks_path = cli.benchmark_search_path.canonicalize()?;
+    let mut benchmarks = find_benchmarks(
+        &cli.benchmark_metadata_name,
+        &cli.benchmark_metadata_schema,
         &benchmarks_path,
         BenchmarkDefaults {
-            solc_version: args.default_solc_version,
-            num_runs: args.default_num_runs,
+            solc_version: cli.default_solc_version,
+            num_runs: cli.default_num_runs,
             calldata: default_calldata.into(),
         },
     )?;
-    let mut benchmarks = match args.benchmarks {
-        None => benchmarks,
-        Some(arg_benchmarks) => {
-            benchmarks.into_iter().filter(|b| arg_benchmarks.contains(&b.name)).collect()
-        }
-    };
-    benchmarks.sort_by_key(|b| b.name.clone());
+    if let Some(arg_benchmarks) = &cli.benchmarks {
+        benchmarks.retain(|b| arg_benchmarks.contains(&b.name));
+        ensure!(!benchmarks.is_empty(), "no benchmarks matched the given names");
+    }
+    benchmarks.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let runners_path = args.runner_search_path.canonicalize()?;
-    let runners =
-        find_runners(&args.runner_metadata_name, &args.runner_metadata_schema, &runners_path, ())?;
-    let mut runners = match args.runners {
-        None => runners,
-        Some(arg_runners) => {
-            runners.into_iter().filter(|r| arg_runners.contains(&r.name)).collect()
-        }
-    };
-    runners.sort_by_key(|b| b.name.clone());
+    let runners_path = cli.runner_search_path.canonicalize()?;
+    let mut runners =
+        find_runners(&cli.runner_metadata_name, &cli.runner_metadata_schema, &runners_path, ())?;
+    if let Some(arg_runners) = &cli.runners {
+        runners.retain(|r| arg_runners.contains(&r.name));
+        ensure!(!runners.is_empty(), "no runners matched the given names");
+    }
+    runners.sort_by(|a, b| a.name.cmp(&b.name));
 
-    fs::create_dir_all(&args.output_path)?;
-    let outputs_path = args.output_path.canonicalize()?;
+    fs::create_dir_all(&cli.output_path)?;
+    let outputs_path = cli.output_path.canonicalize()?;
 
     let builds_path = outputs_path.join("build");
     fs::create_dir_all(&builds_path)?;
-    let built_benchmarks = build_benchmarks(&benchmarks, &docker_executable, &builds_path)?;
+    let built_benchmarks =
+        build_benchmarks(&benchmarks, &docker_executable, &builds_path, cli.force_build)?;
 
     let results = run_benchmarks_on_runners(&built_benchmarks, &runners)?;
 
     let results_path = outputs_path.join("results");
     fs::create_dir_all(&results_path)?;
-    let result_file_path = record_results(&results_path, args.output_file_name, &results)?;
+    let result_file_path = record_results(&results_path, cli.output_file_name, &results)?;
     print_results(&result_file_path)?;
 
     Ok(())

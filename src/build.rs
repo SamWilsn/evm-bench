@@ -1,7 +1,7 @@
 use crate::metadata::Benchmark;
 use color_eyre::eyre::{ensure, Result};
+use itertools::Itertools;
 use std::{
-    collections::HashSet,
     fs::create_dir_all,
     path::{Path, PathBuf},
     process::Command,
@@ -27,7 +27,11 @@ pub struct BuiltBenchmark {
     pub result: BuildResult,
 }
 
-fn build_benchmark(benchmark: &Benchmark, build_context: &BuildContext) -> Result<BuiltBenchmark> {
+fn build_benchmark(
+    benchmark: &Benchmark,
+    force: bool,
+    build_context: &BuildContext,
+) -> Result<BuiltBenchmark> {
     let contract_name = benchmark.contract.file_name().unwrap().to_string_lossy().to_string();
 
     info!(
@@ -44,38 +48,39 @@ fn build_benchmark(benchmark: &Benchmark, build_context: &BuildContext) -> Resul
 
     create_dir_all(&build_context.build_path)?;
 
+    let contract_bin_path = build_context.build_path.join(&contract_name).with_extension("bin");
+
+    if !force && contract_bin_path.exists() {
+        debug!("benchmark {} already built", benchmark.name);
+        return Ok(BuiltBenchmark {
+            benchmark: benchmark.clone(),
+            result: BuildResult { contract_bin_path },
+        });
+    }
+
     let mut cmd = Command::new(&build_context.docker_executable);
-    cmd.arg("run")
-        .args(["-u", &format!("{}:{}", get_current_uid(), get_current_gid())])
-        .args([
-            "-v",
-            &format!(
-                "{}:{}",
-                build_context.contract_context_path.to_string_lossy(),
-                docker_contract_context_path.to_string_lossy()
-            ),
-        ])
-        .args([
-            "-v",
-            &format!(
-                "{}:{}",
-                build_context.build_path.to_string_lossy(),
-                docker_build_path.to_string_lossy()
-            ),
-        ])
-        .arg(format!("ethereum/solc:{}", benchmark.solc_version))
-        .args(["-o", &docker_build_path.to_string_lossy()])
-        .args(["--optimize", "--optimize-runs=1000000"])
-        .args(["--abi", "--bin", "--bin-runtime", "--overwrite"])
-        .arg(docker_contract_path);
+    cmd.arg("run");
+    cmd.arg("-u").arg(&format!("{}:{}", get_current_uid(), get_current_gid()));
+    cmd.arg("-v").arg(&format!(
+        "{}:{}",
+        build_context.contract_context_path.display(),
+        docker_contract_context_path.display()
+    ));
+    cmd.arg("-v").arg(&format!(
+        "{}:{}",
+        build_context.build_path.display(),
+        docker_build_path.display()
+    ));
+    cmd.arg(format!("ethereum/solc:{}", benchmark.solc_version));
+    cmd.arg("-o").arg(&docker_build_path);
+    cmd.args(["--optimize", "--optimize-runs=1000000"]);
+    cmd.args(["--abi", "--bin", "--bin-runtime", "--overwrite"]);
+    cmd.arg(docker_contract_path);
     trace!("cmd: {cmd:?}");
     let out = cmd.output()?;
     trace!("stdout: {}", String::from_utf8(out.stdout).unwrap());
     trace!("stderr: {}", String::from_utf8(out.stderr).unwrap());
     ensure!(out.status.success(), "{}", out.status);
-
-    let mut contract_bin_path = build_context.build_path.join(&contract_name);
-    contract_bin_path.set_extension("bin");
 
     debug!("built benchmark {}", benchmark.name);
     Ok(BuiltBenchmark { benchmark: benchmark.clone(), result: BuildResult { contract_bin_path } })
@@ -85,17 +90,17 @@ pub fn build_benchmarks(
     benchmarks: &Vec<Benchmark>,
     docker_executable: &Path,
     builds_path: &Path,
+    force: bool,
 ) -> Result<Vec<BuiltBenchmark>> {
-    let benchmark_names = benchmarks.iter().map(|b| b.name.clone()).collect::<HashSet<_>>();
-
     info!("building {} benchmarks...", benchmarks.len());
-    debug!("benchmarks: {}", benchmark_names.iter().cloned().collect::<Vec<_>>().join(", "));
+    debug!("benchmarks: {}", benchmarks.iter().map(|b| &b.name).format(", "));
 
     let mut results = Vec::<BuiltBenchmark>::new();
     for benchmark in benchmarks {
         results.push(
             match build_benchmark(
                 benchmark,
+                force,
                 &BuildContext {
                     docker_executable: docker_executable.to_path_buf(),
                     contract_path: benchmark.contract.clone(),

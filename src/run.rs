@@ -4,12 +4,9 @@ use crate::{
 };
 use alloy_primitives::hex;
 use color_eyre::eyre::{ensure, Result};
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::{HashMap, HashSet},
-    process::Command,
-    time::Duration,
-};
+use std::{collections::HashMap, process::Command, time::Duration};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RunResult {
@@ -53,10 +50,8 @@ fn run_benchmark_on_runners(
     benchmark: &BuiltBenchmark,
     runners: &Vec<Runner>,
 ) -> Result<BenchmarkResults> {
-    let runner_names = runners.iter().map(|b| b.name.clone()).collect::<HashSet<_>>();
-
     info!("running benchmark {} on {} runners...", benchmark.benchmark.name, runners.len());
-    debug!("runners: {}", runner_names.iter().cloned().collect::<Vec<_>>().join(", "));
+    debug!("runners: {}", runners.iter().map(|r| &r.name).format(", "));
 
     let mut results = HashMap::<Runner, RunResult>::new();
     for runner in runners {
@@ -86,11 +81,8 @@ pub fn run_benchmarks_on_runners(
     benchmarks: &Vec<BuiltBenchmark>,
     runners: &Vec<Runner>,
 ) -> Result<Results> {
-    let benchmark_names =
-        benchmarks.iter().map(|b| b.benchmark.name.clone()).collect::<HashSet<_>>();
-
     info!("running {} benchmarks...", benchmarks.len());
-    debug!("benchmarks: {}", benchmark_names.iter().cloned().collect::<Vec<_>>().join(", "));
+    debug!("benchmarks: {}", benchmarks.iter().map(|b| &b.benchmark.name).format(", "));
 
     let mut results: HashMap<Benchmark, HashMap<Runner, RunResult>> = HashMap::new();
     for benchmark in benchmarks {

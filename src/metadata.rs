@@ -142,25 +142,23 @@ fn find_metadata<T: MetadataParser>(
     let search_path = search_path.canonicalize()?;
     ensure!(search_path.is_dir(), "{} is not a directory", search_path.display());
 
-    Ok(glob(&search_path.join("**").join(file_name).to_string_lossy())?
-        .flat_map(|entry| match entry {
-            Ok(path) => {
-                debug!("found {}", path.strip_prefix(&search_path).unwrap_or(&path).display());
-                Some(path)
-            }
-            Err(e) => {
-                warn!("error globing file: {:?}", e);
-                None
-            }
-        })
-        .flat_map(|path| match T::parse_from_file(&schema, &path, &defaults) {
-            Ok(res) => {
-                debug!("parsed {}", path.strip_prefix(&search_path).unwrap_or(&path).display());
-                Some(res)
-            }
-            Err(e) => {
-                warn!("error parsing file: {:?}", e);
-                None
+    let glob_path = search_path.join("**").join(file_name);
+    let glob_string = glob_path.to_string_lossy();
+    debug!("globbing in {glob_string}");
+    Ok(glob(&glob_string)?
+        .flat_map(|entry| entry.inspect_err(|e| warn!("error globbing {glob_string}: {e}")).ok())
+        .flat_map(|path| {
+            let stripped_path = path.strip_prefix(&search_path).unwrap_or(&path);
+            debug!("found {}", stripped_path.display());
+            match T::parse_from_file(&schema, &path, &defaults) {
+                Ok(res) => {
+                    debug!("parsed {}", stripped_path.display());
+                    Some(res)
+                }
+                Err(e) => {
+                    warn!("error parsing {}: {e}", stripped_path.display());
+                    None
+                }
             }
         })
         .collect())
@@ -174,8 +172,11 @@ pub fn find_benchmarks(
 ) -> Result<Vec<Benchmark>> {
     let benchmarks =
         find_metadata::<Benchmark>(file_name, schema_path, search_path, benchmark_defaults)?;
-    let benchmark_names = benchmarks.iter().map(|b| b.name.clone()).collect::<HashSet<_>>();
-    ensure!(benchmark_names.len() == benchmarks.len(), "found duplicate benchmark names");
+    ensure!(!benchmarks.is_empty(), "no benchmarks found");
+
+    let benchmark_names = benchmarks.iter().map(|b| &b.name).collect::<HashSet<_>>();
+    ensure!(benchmarks.len() == benchmark_names.len(), "found duplicate benchmark names");
+
     info!("found {} benchmarks: {}", benchmarks.len(), benchmark_names.iter().format(", "));
     Ok(benchmarks)
 }
@@ -187,8 +188,11 @@ pub fn find_runners(
     runner_defaults: (),
 ) -> Result<Vec<Runner>> {
     let runners = find_metadata::<Runner>(file_name, schema_path, search_path, runner_defaults)?;
+    ensure!(!runners.is_empty(), "no runners found");
+
     let runner_names = runners.iter().map(|b| &b.name).collect::<HashSet<_>>();
-    ensure!(runner_names.len() == runners.len(), "found duplicate runners names");
+    ensure!(runners.len() == runner_names.len(), "found duplicate runners names");
+
     info!("found {} runners: {}", runners.len(), runner_names.iter().format(", "));
     Ok(runners)
 }

@@ -1,3 +1,4 @@
+use alloy_primitives::Bytes;
 use color_eyre::eyre::{ensure, Result};
 use glob::glob;
 use itertools::Itertools;
@@ -47,17 +48,23 @@ where
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
 pub struct Benchmark {
     pub name: String,
     pub solc_version: String,
     pub num_runs: u64,
     pub contract: PathBuf,
     pub build_context: PathBuf,
-    pub calldata: Vec<u8>,
+    pub calldata: Bytes,
+}
+
+pub struct BenchmarkDefaults {
+    pub solc_version: String,
+    pub num_runs: u64,
+    pub calldata: Bytes,
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "kebab-case")]
 struct PartialBenchmark {
     pub name: String,
     #[serde(default)]
@@ -65,9 +72,10 @@ struct PartialBenchmark {
     #[serde(default)]
     pub num_runs: Option<u64>,
     pub contract: PathBuf,
-    pub build_context: PathBuf,
     #[serde(default)]
-    pub calldata: Option<Vec<u8>>,
+    pub build_context: Option<PathBuf>,
+    #[serde(default)]
+    pub calldata: Option<Bytes>,
 }
 
 impl PartialBenchmark {
@@ -77,16 +85,13 @@ impl PartialBenchmark {
             solc_version: self.solc_version.unwrap_or_else(|| defaults.solc_version.clone()),
             num_runs: self.num_runs.unwrap_or(defaults.num_runs),
             contract: base_path.join(&self.contract).canonicalize()?,
-            build_context: base_path.join(&self.build_context).canonicalize()?,
+            build_context: match self.build_context {
+                Some(context) => base_path.join(context).canonicalize()?,
+                None => base_path.to_path_buf(),
+            },
             calldata: self.calldata.unwrap_or_else(|| defaults.calldata.clone()),
         })
     }
-}
-
-pub struct BenchmarkDefaults {
-    pub solc_version: String,
-    pub num_runs: u64,
-    pub calldata: Vec<u8>,
 }
 
 impl MetadataParser for Benchmark {

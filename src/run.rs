@@ -2,6 +2,7 @@ use crate::{
     build::BuiltBenchmark,
     metadata::{Benchmark, Runner},
 };
+use alloy_primitives::hex;
 use color_eyre::eyre::{ensure, Result};
 use serde::{Deserialize, Serialize};
 use std::{

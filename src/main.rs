@@ -1,4 +1,5 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
+#![allow(clippy::mutable_key_type)]
 
 #[macro_use]
 extern crate tracing;
@@ -111,7 +112,7 @@ fn main() -> Result<()> {
     let _ = validate_executable("pypy3", &args.pypy_executable)?;
     let _ = validate_executable("npm", &args.npm_executable)?;
 
-    let default_calldata = hex::decode(&args.default_calldata_str)?;
+    let default_calldata = alloy_primitives::hex::decode(&args.default_calldata_str)?;
 
     let benchmarks_path = args.benchmark_search_path.canonicalize()?;
     let benchmarks = find_benchmarks(
@@ -121,7 +122,7 @@ fn main() -> Result<()> {
         BenchmarkDefaults {
             solc_version: args.default_solc_version,
             num_runs: args.default_num_runs,
-            calldata: default_calldata,
+            calldata: default_calldata.into(),
         },
     )?;
     let mut benchmarks = match args.benchmarks {
@@ -163,7 +164,11 @@ fn main() -> Result<()> {
 fn init_tracing_subscriber() -> Result<(), tracing_subscriber::util::TryInitError> {
     use tracing_subscriber::prelude::*;
     tracing_subscriber::Registry::default()
-        .with(tracing_subscriber::EnvFilter::from_default_env())
+        .with(
+            tracing_subscriber::EnvFilter::builder()
+                .with_default_directive(tracing::level_filters::LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
         .with(tracing_error::ErrorLayer::default())
         .with(tracing_subscriber::fmt::layer())
         .try_init()

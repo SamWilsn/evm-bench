@@ -6,10 +6,3 @@ edition = "2021"
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 revm = "8.0.0"
-
-[profile.release]
-opt-level = 3
-lto = "fat"
-panic = "abort"
-debug = "line-tables-only"
-codegen-units = 1

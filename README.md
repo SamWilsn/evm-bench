@@ -32,7 +32,7 @@ The evm-bench framework can run any benchmark on any runner. The links above div
 
 ### With the evm-bench suite
 
-Simply cloning this repository and running `RUST_LOG=info cargo run --release --` will do the trick. You may need to install some dependencies for the benchmark build process and the runner execution.
+Simply cloning this repository and running `cargo run` will do the trick. You may need to install some dependencies for the benchmark build process and the runner execution.
 
 ### With another suite
 

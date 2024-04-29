@@ -30,25 +30,25 @@ struct Args {
 fn main() {
     let args = Args::parse();
 
-    let creation_code: Bytes =
-        hex::decode(fs::read_to_string(args.contract_code_path).expect("unable to open file"))
-            .expect("could not hex decode contract code")
-            .into();
-    let calldata: Bytes = hex::decode(args.calldata)
+    let creation_code_hex =
+        fs::read_to_string(args.contract_code_path).expect("failed to read code path");
+    let creation_code: Bytes = hex::decode(creation_code_hex.trim())
+        .expect("could not hex decode contract code")
+        .into();
+    let calldata: Bytes = hex::decode(args.calldata.trim())
         .expect("could not hex decode calldata")
         .into();
 
     let caller = address!("1000000000000000000000000000000000000001");
 
-    // Set up the EVM to create the contract.
-    let mut create_env = Env::default();
-    create_env.tx.caller = caller;
-    create_env.tx.transact_to = TransactTo::create();
-    create_env.tx.data = creation_code;
-
+    // Set up and run the EVM to create the contract.
     let mut evm = Evm::builder()
         .with_empty_db()
-        .with_env(create_env.into())
+        .modify_tx_env(|tx| {
+            tx.caller = caller;
+            tx.transact_to = TransactTo::create();
+            tx.data = creation_code;
+        })
         .build();
     let ResultAndState { result, state } = evm.transact().expect("EVM failed");
     let ExecutionResult::Success { output, .. } = result else {
@@ -79,7 +79,7 @@ fn main() {
     let table = &make_instruction_table::<_, LatestSpec>();
 
     for _ in 0..args.num_runs {
-        let mut interpreter = Interpreter::new(contract.clone().into(), u64::MAX, false);
+        let mut interpreter = Interpreter::new(contract.clone(), u64::MAX, false);
 
         let timer = Instant::now();
         let action = interpreter.run(SharedMemory::new(), table, &mut host);
@@ -94,6 +94,6 @@ fn main() {
 
         host.clear();
 
-        println!("{}", dur.as_micros() as f64 / 1e3)
+        println!("{}", dur.as_secs_f64() * 1000.0)
     }
 }

@@ -74,7 +74,7 @@ impl ResultsFormatted {
                 let mut avg =
                     benchmark_runs.values().flat_map(|run| run.average()).sum::<Duration>();
                 if avg == Duration::default() {
-                    avg = Duration::from_secs(1);
+                    avg = Duration::from_secs(999);
                 }
                 (runner_name, avg)
             })

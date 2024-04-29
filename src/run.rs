@@ -36,19 +36,15 @@ pub fn run_benchmarks_on_runners(
     info!("running {} benchmarks on {} runners...", benchmarks.len(), runners.len());
     debug!("runners: {}", runners.iter().map(|r| &r.name).format(", "));
     debug!("benchmarks: {}", benchmarks.iter().map(|b| &b.benchmark.name).format(", "));
-
     let mut results = Results::with_capacity(runners.len());
     for runner in runners {
         results.insert(runner.clone(), run_benchmarks_on_runner(runner, benchmarks));
     }
-
-    debug!("ran {} benchmarks ({} successful)", benchmarks.len(), results.len());
     Ok(results)
 }
 
 fn run_benchmarks_on_runner(runner: &Runner, benchmarks: &[BuiltBenchmark]) -> BenchmarkResults {
     info!("running benchmarks on {}...", runner.name);
-
     // NOTE: It is expected that this map contains all benchmarks.
     let mut results = BenchmarkResults::with_capacity(benchmarks.len());
     for benchmark in benchmarks {
@@ -64,13 +60,11 @@ fn run_benchmarks_on_runner(runner: &Runner, benchmarks: &[BuiltBenchmark]) -> B
         };
         results.insert(benchmark.benchmark.clone(), result);
     }
-
-    debug!("ran {} benchmarks on {} ({} successful)", benchmarks.len(), runner.name, results.len());
     results
 }
 
 fn run_benchmark_on_runner(benchmark: &BuiltBenchmark, runner: &Runner) -> Result<RunResult> {
-    info!("running benchmark {}...", benchmark.benchmark.name);
+    info!("{}: {}...", runner.name, benchmark.benchmark.name);
     debug!(
         "running {} times using code {} with calldata {}...",
         benchmark.benchmark.num_runs,

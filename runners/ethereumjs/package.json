@@ -1,20 +1,17 @@
 {
-  "name": "runner-ethereumjs",
-  "scripts": {
-    "nodejs-runner": "ts-node --transpile-only runner.ts"
-  },
-  "dependencies": {
-    "@ethereumjs/common": "3.2.0",
-    "@ethereumjs/evm": "1.4.0",
-    "@ethereumjs/util": "8.1.0",
-    "@ethereumjs/vm": "6.5.0",
-    "@types/node": "18.19.26",
-    "commander": "10.0.1",
-    "deno": "0.1.1",
-    "ts-node": "10.9.2",
-    "typescript": "5.4.2"
-  },
-  "devDependencies": {
-    "prettier": "2.8.8"
-  }
+    "name": "runner-ethereumjs",
+    "type": "commonjs",
+    "scripts": {
+        "nodejs-runner": "ts-node --transpile-only runner.ts"
+    },
+    "dependencies": {
+        "@ethereumjs/common": "^4.3.0",
+        "@ethereumjs/evm": "^3.0.0",
+        "@ethereumjs/util": "^9.0.3",
+        "@ethereumjs/vm": "^8.0.0",
+        "@types/node": "^20.12.7",
+        "commander": "^12.0.0",
+        "ts-node": "10.9.2",
+        "typescript": "^5.4.5"
+    }
 }

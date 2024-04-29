@@ -54,7 +54,7 @@ impl ResultsFormatted {
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
-        let file = fs::File::create_new(&path)?;
+        let file = fs::File::create_new(path)?;
         let mut writer = std::io::BufWriter::new(file);
         serde_json::to_writer_pretty(&mut writer, self)?;
         writer.flush()?;

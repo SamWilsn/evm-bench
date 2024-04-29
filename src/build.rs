@@ -87,7 +87,7 @@ fn build_benchmark(
 }
 
 pub fn build_benchmarks(
-    benchmarks: &Vec<Benchmark>,
+    benchmarks: &[Benchmark],
     docker_executable: &Path,
     builds_path: &Path,
     force: bool,

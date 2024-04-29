@@ -114,7 +114,7 @@ fn main() -> Result<()> {
     if let Some(path) = cli.display {
         let path = match path {
             Some(path) => path,
-            None => fs::read_dir(&cli.output_path.join("results"))
+            None => fs::read_dir(cli.output_path.join("results"))
                 .wrap_err("could not read results directory")?
                 .flatten()
                 .filter(|entry| entry.file_type().map(|ft| ft.is_file()).unwrap_or(false))

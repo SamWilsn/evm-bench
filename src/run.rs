@@ -30,8 +30,8 @@ impl RunResult {
 }
 
 pub fn run_benchmarks_on_runners(
-    benchmarks: &Vec<BuiltBenchmark>,
-    runners: &Vec<Runner>,
+    benchmarks: &[BuiltBenchmark],
+    runners: &[Runner],
 ) -> Result<Results> {
     info!("running {} benchmarks on {} runners...", benchmarks.len(), runners.len());
     debug!("runners: {}", runners.iter().map(|r| &r.name).format(", "));

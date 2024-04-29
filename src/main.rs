@@ -5,7 +5,7 @@
 extern crate tracing;
 
 use clap::Parser;
-use color_eyre::eyre::{ensure, Result};
+use color_eyre::eyre::{ensure, eyre, Result};
 use itertools::Itertools;
 use std::{fs, path::PathBuf};
 
@@ -32,7 +32,7 @@ struct Cli {
     benchmark_search_path: PathBuf,
 
     /// Names of benchmarks to run.
-    #[arg(long, default_value = None)]
+    #[arg(long)]
     benchmarks: Option<Vec<String>>,
 
     /// Path to use as the base for runners searching
@@ -40,7 +40,7 @@ struct Cli {
     runner_search_path: PathBuf,
 
     /// Names of runners to use.
-    #[arg(long, default_value = None)]
+    #[arg(long)]
     runners: Option<Vec<String>>,
 
     /// Output path for build artifacts and other things
@@ -49,7 +49,7 @@ struct Cli {
 
     /// Name of the output file, will not overwrite.
     /// Default means to use the current datetime.
-    #[arg(long, default_value = None)]
+    #[arg(long)]
     output_file_name: Option<String>,
 
     /// Path to a Docker executable (this is used for solc)
@@ -99,6 +99,10 @@ struct Cli {
     /// Always build benchmarks, even if they are already built
     #[arg(long)]
     force_build: bool,
+
+    /// Display the latest results, or parse the given file
+    #[arg(long)]
+    display: Option<Option<PathBuf>>,
 }
 
 fn main() -> Result<()> {
@@ -106,6 +110,19 @@ fn main() -> Result<()> {
     let _ = init_tracing_subscriber();
 
     let cli = Cli::parse();
+
+    if let Some(path) = cli.display {
+        let path = match path {
+            Some(path) => path,
+            None => fs::read_dir(&cli.output_path.join("results"))?
+                .flatten()
+                .filter(|entry| entry.file_type().map(|ft| ft.is_file()).unwrap_or(false))
+                .map(|entry| entry.path())
+                .max()
+                .ok_or_else(|| eyre!("no results found"))?,
+        };
+        return print_results(&path);
+    }
 
     let docker_executable = validate_executable("docker", cli.docker_executable.as_deref())?;
     let _ = validate_executable("cargo", None)?;

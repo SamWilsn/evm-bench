@@ -3,15 +3,16 @@ use crate::{
     run::{Results, RunResult},
 };
 use color_eyre::eyre::Result;
+use comfy_table::{presets, Cell, CellAlignment, Cells, Table};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     fs,
     io::Write,
+    iter,
     path::{Path, PathBuf},
     time::Duration,
 };
-use tabled::{builder::Builder, settings::Style, Table};
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct ResultsFormatted {
@@ -83,41 +84,47 @@ impl ResultsFormatted {
         }
         runner_names.sort_by_key(|&name| runner_times[name].iter().sum::<Duration>());
 
-        let mut builder = Builder::default();
+        let mut table = Table::new();
+        table.load_preset(presets::ASCII_MARKDOWN);
 
         // Header.
-        builder.push_record(std::iter::once("").chain(runner_names.iter().map(|s| s.as_str())));
+        {
+            let header = runner_names.iter().map(|s| s.as_str());
+            let mut cells = Cells::from(iter::once("").chain(header));
+            for cell in &mut cells.0 {
+                *cell = std::mem::replace(cell, Cell::new("")).set_alignment(CellAlignment::Center);
+            }
+            table.set_header(cells);
+        }
 
-        // Sum of all times.
         let average_runner_times = runner_times
             .iter()
             .map(|(name, times)| (name, times.iter().sum::<Duration>()))
-            .collect::<HashMap<&String, Duration>>();
-        let mut record = vec!["**sum**".to_string()];
-        record.extend(
-            runner_names
+            .collect::<HashMap<_, _>>();
+        // Sum of all times.
+        {
+            let row = runner_names
                 .iter()
                 .map(|&runner_name| average_runner_times.get(runner_name))
-                .map(|val| Some(format!("{:>9.3?}", val?)))
-                .map(|s| s.unwrap_or_default()),
-        );
-        builder.push_record(record);
+                .map(|val: Option<&Duration>| Some(format!("{:.3?}", val?)))
+                .map(|s| s.unwrap_or_default());
+            table.add_row(iter::once("**sum**".to_string()).chain(row));
+        }
 
         // Relative times.
-        let min_runner_time =
-            average_runner_times.values().min().copied().unwrap_or(Duration::from_secs(1));
-        let mut record = vec!["**relative**".to_string()];
-        record.extend(
-            runner_names
+        {
+            let min_runner_time =
+                average_runner_times.values().min().copied().unwrap_or(Duration::from_secs(1));
+            let row = runner_names
                 .iter()
                 .map(|&name| {
                     average_runner_times.get(name).map(|time| {
-                        format!("{:>9.3?}", time.as_secs_f64() / min_runner_time.as_secs_f64())
+                        format!("{:.3?}x", time.as_secs_f64() / min_runner_time.as_secs_f64())
                     })
                 })
-                .map(Option::unwrap_or_default),
-        );
-        builder.push_record(record);
+                .map(Option::unwrap_or_default);
+            table.add_row(iter::once("**relative**".to_string()).chain(row));
+        }
 
         // Individual runs.
         for &(benchmark_name, benchmark_runs) in runs.iter() {
@@ -129,15 +136,16 @@ impl ResultsFormatted {
                 Some(avg_run_time)
             });
 
-            let mut record = vec![benchmark_name.clone()];
-            record.extend(
-                vals.map(|val| val.map(|time| format!("{time:>9.3?}")).unwrap_or_default()),
-            );
-            builder.push_record(record);
+            let row = vals.map(|val| val.map(|time| format!("{time:.3?}")).unwrap_or_default());
+            table.add_row(iter::once(benchmark_name.clone()).chain(row));
         }
 
-        let mut table = builder.build();
-        table.with(Style::markdown());
+        let mut columns = table.column_iter_mut();
+        columns.next().unwrap().set_cell_alignment(CellAlignment::Center);
+        for column in columns {
+            column.set_cell_alignment(CellAlignment::Right);
+        }
+
         table
     }
 }

@@ -39,36 +39,34 @@ fn run_benchmark_on_runner(
         hex::encode(&benchmark.benchmark.calldata),
     );
 
-    let out = Command::new(&runner.entry)
-        .args([
-            "--contract-code-path",
-            &benchmark.result.contract_bin_path.to_string_lossy(),
-        ])
-        .args(["--calldata", &hex::encode(&benchmark.benchmark.calldata)])
-        .args(["--num-runs", &format!("{}", benchmark.benchmark.num_runs)])
-        .output()?;
-
+    let mut cmd = Command::new(&runner.entry);
+    cmd.arg("--contract-code-path")
+        .arg(&benchmark.result.contract_bin_path);
+    cmd.arg("--calldata")
+        .arg(&hex::encode(&benchmark.benchmark.calldata));
+    cmd.arg("--num-runs")
+        .arg(&benchmark.benchmark.num_runs.to_string());
+    log::trace!("cmd: {cmd:?}");
+    let out = cmd.output()?;
     let stdout = String::from_utf8(out.stdout).unwrap();
     log::trace!("stdout: {}", stdout);
     log::trace!("stderr: {}", String::from_utf8(out.stderr).unwrap());
-
-    if out.status.success() {
-        let mut times: Vec<Duration> = Vec::new();
-        for line in stdout.trim().split("\n") {
-            times.push(Duration::from_millis(
-                str::parse::<f64>(line)?.round() as u64
-            ));
-        }
-
-        log::debug!(
-            "ran benchmark {} on runner {}",
-            benchmark.benchmark.name,
-            runner.name
-        );
-        Ok(RunResult { run_times: times })
-    } else {
-        Err(format!("{}", out.status).into())
+    if !out.status.success() {
+        return Err(out.status.to_string().into());
     }
+
+    let mut times: Vec<Duration> = Vec::new();
+    for line in stdout.trim().lines() {
+        let millis: f64 = line.parse()?;
+        times.push(Duration::try_from_secs_f64(millis / 1000.0)?);
+    }
+
+    log::debug!(
+        "ran benchmark {} on runner {}",
+        benchmark.benchmark.name,
+        runner.name
+    );
+    Ok(RunResult { run_times: times })
 }
 
 fn run_benchmark_on_runners(

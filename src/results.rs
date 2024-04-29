@@ -99,28 +99,25 @@ pub fn print_results(results_file_path: &Path) -> Result<(), Box<dyn error::Erro
     runs.sort_by_key(|(b, _)| b.clone());
 
     let mut runner_times = HashMap::<String, Vec<Duration>>::new();
-    for (_, benchmark_runs) in runs.iter() {
-        runner_names.iter().for_each(|runner_name| {
-            let run = benchmark_runs.get(runner_name).unwrap();
+    for (run_name, benchmark_runs) in &runs {
+        for runner_name in &runner_names {
+            let Some(run) = benchmark_runs.get(runner_name) else {
+                log::warn!("no runs for {run_name}/{runner_name}");
+                continue;
+            };
             let avg_run_time = run
                 .run_times
                 .iter()
-                .fold(Duration::ZERO, |a, v| a + v.clone())
+                .sum::<Duration>()
                 .div_f64(run.run_times.len() as f64);
             runner_times
                 .entry(runner_name.clone())
                 .or_default()
                 .push(avg_run_time);
-        });
+        }
     }
 
-    runner_names.sort_by_key(|runner_name| {
-        runner_times
-            .get(runner_name)
-            .unwrap()
-            .into_iter()
-            .fold(Duration::ZERO, |a, v| a + v.clone())
-    });
+    runner_names.sort_by_key(|runner_name| runner_times[runner_name].iter().sum::<Duration>());
 
     let mut builder = Builder::default();
     let average_runner_times = runner_times
@@ -132,7 +129,7 @@ pub fn print_results(results_file_path: &Path) -> Result<(), Box<dyn error::Erro
         runner_names
             .iter()
             .map(|runner_name| average_runner_times.get(runner_name))
-            .map(|val| Some(format!("{:?}", val?)))
+            .map(|val| Some(format!("{:>9.3?}", val?)))
             .map(|s| s.unwrap_or_default()),
     );
     builder.push_record(record);
@@ -150,7 +147,7 @@ pub fn print_results(results_file_path: &Path) -> Result<(), Box<dyn error::Erro
                         / min_runner_time.as_secs_f64(),
                 )
             })
-            .map(|val| Some(format!("{:.3?}x", val?)))
+            .map(|val| Some(format!("{:>9.3?}x", val?)))
             .map(|s| s.unwrap_or_default()),
     );
     builder.push_record(record);
@@ -161,7 +158,7 @@ pub fn print_results(results_file_path: &Path) -> Result<(), Box<dyn error::Erro
             let avg_run_time = run
                 .run_times
                 .iter()
-                .fold(Duration::ZERO, |a, v| a + v.clone())
+                .sum::<Duration>()
                 .div_f64(run.run_times.len() as f64);
             runner_times
                 .entry(runner_name.clone())
@@ -172,7 +169,7 @@ pub fn print_results(results_file_path: &Path) -> Result<(), Box<dyn error::Erro
 
         let mut record = vec![benchmark_name.clone()];
         record.extend(
-            vals.map(|val| Some(format!("{:?}", val?)))
+            vals.map(|val| Some(format!("{:>9.3?}", val?)))
                 .map(|s| s.unwrap_or_default()),
         );
         builder.push_record(record);

@@ -54,8 +54,8 @@ fn build_benchmark(
 
     create_dir_all(&build_context.build_path)?;
 
-    let out = Command::new(&build_context.docker_executable)
-        .arg("run")
+    let mut cmd = Command::new(&build_context.docker_executable);
+    cmd.arg("run")
         .args([
             "-u",
             &format!("{}:{}", get_current_uid(), get_current_gid()),
@@ -78,25 +78,25 @@ fn build_benchmark(
         ])
         .arg(format!("ethereum/solc:{}", benchmark.solc_version))
         .args(["-o", &docker_build_path.to_string_lossy()])
-        .args(["--abi", "--bin", "--optimize", "--overwrite"])
-        .arg(docker_contract_path)
-        .output()?;
-
+        .args(["--optimize", "--optimize-runs=1000000"])
+        .args(["--abi", "--bin", "--bin-runtime", "--overwrite"])
+        .arg(docker_contract_path);
+    log::trace!("cmd: {cmd:?}");
+    let out = cmd.output()?;
     log::trace!("stdout: {}", String::from_utf8(out.stdout).unwrap());
     log::trace!("stderr: {}", String::from_utf8(out.stderr).unwrap());
-
-    if out.status.success() {
-        let mut contract_bin_path = build_context.build_path.join(&contract_name);
-        contract_bin_path.set_extension("bin");
-
-        log::debug!("built benchmark {}", benchmark.name);
-        Ok(BuiltBenchmark {
-            benchmark: benchmark.clone(),
-            result: BuildResult { contract_bin_path },
-        })
-    } else {
-        Err(format!("{}", out.status).into())
+    if !out.status.success() {
+        return Err(out.status.to_string().into());
     }
+
+    let mut contract_bin_path = build_context.build_path.join(&contract_name);
+    contract_bin_path.set_extension("bin");
+
+    log::debug!("built benchmark {}", benchmark.name);
+    Ok(BuiltBenchmark {
+        benchmark: benchmark.clone(),
+        result: BuildResult { contract_bin_path },
+    })
 }
 
 pub fn build_benchmarks(

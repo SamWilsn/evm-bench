@@ -2,7 +2,7 @@ use crate::metadata::Benchmark;
 use color_eyre::eyre::{ensure, Result};
 use itertools::Itertools;
 use std::{
-    fs::create_dir_all,
+    fs,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -46,7 +46,7 @@ fn build_benchmark(
     let docker_contract_path = docker_contract_context_path.join(relative_contract_path);
     let docker_build_path = PathBuf::from("/build");
 
-    create_dir_all(&build_context.build_path)?;
+    fs::create_dir_all(&build_context.build_path)?;
 
     let contract_bin_path = build_context.build_path.join(&contract_name).with_extension("bin");
 

@@ -1,7 +1,10 @@
 [package]
 name = "evm-bench"
 version = "0.1.0"
-authors = ["Ziyad Edher <ziyad.edher@gmail.com>"]
+authors = [
+    "Ziyad Edher <ziyad.edher@gmail.com>",
+    "DaniPopes <57450786+DaniPopes@users.noreply.github.com>",
+]
 edition = "2021"
 description = "🚀🪑 evm-bench is a suite of Ethereum Virtual Machine stress tests and benchmarks."
 homepage = "https://github.com/ziyadedher/evm-bench"

@@ -27,14 +27,9 @@ pub fn record_results(
 ) -> Result<PathBuf> {
     debug!("writing all results out...");
 
-    fs::create_dir_all(&results_path)?;
+    fs::create_dir_all(results_path)?;
 
-    let mut runners = HashSet::<&Runner>::new();
-    for (_, benchmark_results) in results {
-        for (runner, _) in benchmark_results {
-            runners.insert(runner);
-        }
-    }
+    let runners: HashSet<&Runner> = results.values().flat_map(HashMap::keys).collect();
 
     let results_formatted = ResultsFormatted {
         benchmarks: results.keys().map(|b| (b.name.clone(), b.clone())).collect(),
@@ -47,27 +42,26 @@ pub fn record_results(
             .collect(),
     };
 
-    let result_file_path =
-        results_path.join(result_file_name.unwrap_or(format!(
-            "{}.evm-bench.results.json",
-            chrono::offset::Utc::now().to_rfc3339()
-        )));
-    let mut result_file = fs::OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .truncate(true)
-        .open(&result_file_path)?;
-    write!(result_file, "{}", serde_json::to_string_pretty(&results_formatted)?)?;
+    let result_file_name = result_file_name.unwrap_or_else(|| {
+        format!("{}.evm-bench.results.json", chrono::offset::Utc::now().to_rfc3339())
+    });
+    let result_file_path = results_path.join(result_file_name);
+    {
+        let file = fs::File::create_new(&result_file_path)?;
+        let mut writer = std::io::BufWriter::new(file);
+        serde_json::to_writer_pretty(&mut writer, &results_formatted)?;
+        writer.flush()?;
+    }
 
-    info!("wrote out results to {}", result_file_path.to_string_lossy());
+    info!("wrote out results to {}", result_file_path.display());
     Ok(result_file_path)
 }
 
 pub fn print_results(results_file_path: &Path) -> Result<()> {
-    info!("reading and parsing results from {}...", results_file_path.to_string_lossy());
+    info!("reading and parsing results from {}...", results_file_path.display());
     let results =
         serde_json::from_str::<ResultsFormatted>(&fs::read_to_string(results_file_path)?)?;
-    debug!("read and parsed results from {}", results_file_path.to_string_lossy());
+    debug!("read and parsed results from {}", results_file_path.display());
 
     let mut runner_names: Vec<_> = results.runners.keys().cloned().collect();
     runner_names.sort();

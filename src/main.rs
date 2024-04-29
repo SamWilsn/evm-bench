@@ -111,7 +111,7 @@ fn main() -> Result<()> {
     let _ = validate_executable("pypy3", &args.pypy_executable)?;
     let _ = validate_executable("npm", &args.npm_executable)?;
 
-    let default_calldata = hex::decode(args.default_calldata_str.to_string())?;
+    let default_calldata = hex::decode(&args.default_calldata_str)?;
 
     let benchmarks_path = args.benchmark_search_path.canonicalize()?;
     let benchmarks = find_benchmarks(

@@ -93,7 +93,7 @@ pub fn run_benchmarks_on_runners(
 
     let mut results: HashMap<Benchmark, HashMap<Runner, RunResult>> = HashMap::new();
     for benchmark in benchmarks {
-        let result = match run_benchmark_on_runners(benchmark, &runners) {
+        let result = match run_benchmark_on_runners(benchmark, runners) {
             Ok(res) => res,
             Err(e) => {
                 warn!("could not run benchmark {} on runners: {e}", benchmark.benchmark.name);

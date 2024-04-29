@@ -2,18 +2,18 @@ use crate::{
     metadata::{Benchmark, Runner},
     run::{Results, RunResult},
 };
+use color_eyre::eyre::Result;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
-    error,
-    fs::{self, create_dir_all},
+    fs,
     io::Write,
     path::{Path, PathBuf},
     time::Duration,
 };
 use tabled::{builder::Builder, settings::Style};
 
-#[derive(Deserialize, Serialize)]
+#[derive(Serialize, Deserialize)]
 struct ResultsFormatted {
     benchmarks: HashMap<String, Benchmark>,
     runners: HashMap<String, Runner>,
@@ -24,10 +24,10 @@ pub fn record_results(
     results_path: &Path,
     result_file_name: Option<String>,
     results: &Results,
-) -> Result<PathBuf, Box<dyn error::Error>> {
-    log::debug!("writing all results out...");
+) -> Result<PathBuf> {
+    debug!("writing all results out...");
 
-    create_dir_all(&results_path)?;
+    fs::create_dir_all(&results_path)?;
 
     let mut runners = HashSet::<&Runner>::new();
     for (_, benchmark_results) in results {
@@ -59,15 +59,15 @@ pub fn record_results(
         .open(&result_file_path)?;
     write!(result_file, "{}", serde_json::to_string_pretty(&results_formatted)?)?;
 
-    log::info!("wrote out results to {}", result_file_path.to_string_lossy());
+    info!("wrote out results to {}", result_file_path.to_string_lossy());
     Ok(result_file_path)
 }
 
-pub fn print_results(results_file_path: &Path) -> Result<(), Box<dyn error::Error>> {
-    log::info!("reading and parsing results from {}...", results_file_path.to_string_lossy());
+pub fn print_results(results_file_path: &Path) -> Result<()> {
+    info!("reading and parsing results from {}...", results_file_path.to_string_lossy());
     let results =
         serde_json::from_str::<ResultsFormatted>(&fs::read_to_string(results_file_path)?)?;
-    log::debug!("read and parsed results from {}", results_file_path.to_string_lossy());
+    debug!("read and parsed results from {}", results_file_path.to_string_lossy());
 
     let mut runner_names: Vec<_> = results.runners.keys().cloned().collect();
     runner_names.sort();
@@ -79,7 +79,7 @@ pub fn print_results(results_file_path: &Path) -> Result<(), Box<dyn error::Erro
     for (run_name, benchmark_runs) in &runs {
         for runner_name in &runner_names {
             let Some(run) = benchmark_runs.get(runner_name) else {
-                log::warn!("no runs for {run_name}/{runner_name}");
+                warn!("no runs for {run_name}/{runner_name}");
                 continue;
             };
             let avg_run_time =
@@ -107,8 +107,7 @@ pub fn print_results(results_file_path: &Path) -> Result<(), Box<dyn error::Erro
     );
     builder.push_record(record);
 
-    let min_runner_time =
-        average_runner_times.values().min().ok_or("could not get minimum runner time")?;
+    let min_runner_time = average_runner_times.values().min().unwrap();
     let mut record = vec!["**relative**".to_string()];
     record.extend(
         runner_names

@@ -1,8 +1,13 @@
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
+
+#[macro_use]
+extern crate tracing;
+
 use clap::Parser;
+use color_eyre::eyre::Result;
 use std::{
-    error, fs,
+    fs,
     path::{Path, PathBuf},
-    process::exit,
 };
 
 mod build;
@@ -21,7 +26,7 @@ mod run;
 use run::run_benchmarks_on_runners;
 
 /// Ethereum Virtual Machine Benchmark (evm-bench)
-#[derive(Parser, Debug)]
+#[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// Path to use as the base for benchmarks searching
@@ -94,73 +99,72 @@ struct Args {
     default_calldata_str: String,
 }
 
-fn main() {
-    env_logger::init();
+fn main() -> Result<()> {
+    let _ = init_tracing_subscriber();
 
     let args = Args::parse();
 
-    (|| -> Result<(), Box<dyn error::Error>> {
-        let docker_executable = validate_executable("docker", &args.docker_executable)?;
-        let _ = validate_executable("cargo", Path::new("cargo"))?;
-        let _ = validate_executable("poetry", Path::new("poetry"))?;
-        let _ = validate_executable("python3", &args.cpython_executable)?;
-        let _ = validate_executable("pypy3", &args.pypy_executable)?;
-        let _ = validate_executable("npm", &args.npm_executable)?;
+    let docker_executable = validate_executable("docker", &args.docker_executable)?;
+    let _ = validate_executable("cargo", Path::new("cargo"))?;
+    let _ = validate_executable("poetry", Path::new("poetry"))?;
+    let _ = validate_executable("python3", &args.cpython_executable)?;
+    let _ = validate_executable("pypy3", &args.pypy_executable)?;
+    let _ = validate_executable("npm", &args.npm_executable)?;
 
-        let default_calldata = hex::decode(args.default_calldata_str.to_string())?;
+    let default_calldata = hex::decode(args.default_calldata_str.to_string())?;
 
-        let benchmarks_path = args.benchmark_search_path.canonicalize()?;
-        let benchmarks = find_benchmarks(
-            &args.benchmark_metadata_name,
-            &args.benchmark_metadata_schema,
-            &benchmarks_path,
-            BenchmarkDefaults {
-                solc_version: args.default_solc_version,
-                num_runs: args.default_num_runs,
-                calldata: default_calldata,
-            },
-        )?;
-        let mut benchmarks = match args.benchmarks {
-            None => benchmarks,
-            Some(arg_benchmarks) => {
-                benchmarks.into_iter().filter(|b| arg_benchmarks.contains(&b.name)).collect()
-            }
-        };
-        benchmarks.sort_by_key(|b| b.name.clone());
+    let benchmarks_path = args.benchmark_search_path.canonicalize()?;
+    let benchmarks = find_benchmarks(
+        &args.benchmark_metadata_name,
+        &args.benchmark_metadata_schema,
+        &benchmarks_path,
+        BenchmarkDefaults {
+            solc_version: args.default_solc_version,
+            num_runs: args.default_num_runs,
+            calldata: default_calldata,
+        },
+    )?;
+    let mut benchmarks = match args.benchmarks {
+        None => benchmarks,
+        Some(arg_benchmarks) => {
+            benchmarks.into_iter().filter(|b| arg_benchmarks.contains(&b.name)).collect()
+        }
+    };
+    benchmarks.sort_by_key(|b| b.name.clone());
 
-        let runners_path = args.runner_search_path.canonicalize()?;
-        let runners = find_runners(
-            &args.runner_metadata_name,
-            &args.runner_metadata_schema,
-            &runners_path,
-            (),
-        )?;
-        let mut runners = match args.runners {
-            None => runners,
-            Some(arg_runners) => {
-                runners.into_iter().filter(|r| arg_runners.contains(&r.name)).collect()
-            }
-        };
-        runners.sort_by_key(|b| b.name.clone());
+    let runners_path = args.runner_search_path.canonicalize()?;
+    let runners =
+        find_runners(&args.runner_metadata_name, &args.runner_metadata_schema, &runners_path, ())?;
+    let mut runners = match args.runners {
+        None => runners,
+        Some(arg_runners) => {
+            runners.into_iter().filter(|r| arg_runners.contains(&r.name)).collect()
+        }
+    };
+    runners.sort_by_key(|b| b.name.clone());
 
-        fs::create_dir_all(&args.output_path)?;
-        let outputs_path = args.output_path.canonicalize()?;
+    fs::create_dir_all(&args.output_path)?;
+    let outputs_path = args.output_path.canonicalize()?;
 
-        let builds_path = outputs_path.join("build");
-        fs::create_dir_all(&builds_path)?;
-        let built_benchmarks = build_benchmarks(&benchmarks, &docker_executable, &builds_path)?;
+    let builds_path = outputs_path.join("build");
+    fs::create_dir_all(&builds_path)?;
+    let built_benchmarks = build_benchmarks(&benchmarks, &docker_executable, &builds_path)?;
 
-        let results = run_benchmarks_on_runners(&built_benchmarks, &runners)?;
+    let results = run_benchmarks_on_runners(&built_benchmarks, &runners)?;
 
-        let results_path = outputs_path.join("results");
-        fs::create_dir_all(&results_path)?;
-        let result_file_path = record_results(&results_path, args.output_file_name, &results)?;
-        print_results(&result_file_path)?;
+    let results_path = outputs_path.join("results");
+    fs::create_dir_all(&results_path)?;
+    let result_file_path = record_results(&results_path, args.output_file_name, &results)?;
+    print_results(&result_file_path)?;
 
-        Ok(())
-    })()
-    .unwrap_or_else(|e| {
-        log::error!("{e}");
-        exit(-1);
-    });
+    Ok(())
+}
+
+fn init_tracing_subscriber() -> Result<(), tracing_subscriber::util::TryInitError> {
+    use tracing_subscriber::prelude::*;
+    tracing_subscriber::Registry::default()
+        .with(tracing_subscriber::EnvFilter::from_default_env())
+        .with(tracing_error::ErrorLayer::default())
+        .with(tracing_subscriber::fmt::layer())
+        .try_init()
 }

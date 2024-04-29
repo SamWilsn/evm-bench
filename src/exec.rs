@@ -1,17 +1,14 @@
+use color_eyre::eyre::{eyre, Result};
 use std::{
-    error,
     path::{Path, PathBuf},
     process::Command,
 };
 
-pub fn validate_executable(
-    name: &str,
-    executable: &Path,
-) -> Result<PathBuf, Box<dyn error::Error>> {
-    log::trace!("validating executable {} ({name})", executable.display());
+pub fn validate_executable(name: &str, executable: &Path) -> Result<PathBuf> {
+    trace!("validating executable {} ({name})", executable.display());
     match Command::new(&executable).arg("--version").output() {
         Ok(out) => {
-            log::debug!(
+            debug!(
                 "found {name} ({}): {}",
                 executable.display(),
                 String::from_utf8(out.stdout)
@@ -20,11 +17,6 @@ pub fn validate_executable(
             );
             Ok(executable.to_path_buf())
         }
-        Err(e) => match e.kind() {
-            std::io::ErrorKind::NotFound => {
-                Err(format!("{name} not found, tried {}", executable.display()).into())
-            }
-            _ => Err(format!("unknown error: {e}").into()),
-        },
+        Err(e) => Err(eyre!("{executable:?}: {e}")),
     }
 }

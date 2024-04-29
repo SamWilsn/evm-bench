@@ -31,6 +31,9 @@ tracing = "0.1"
 tracing-error = "0.2"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 
+[dev-dependencies]
+expect-test = "1.5"
+
 [profile.runner]
 inherits = "release"
 opt-level = 3

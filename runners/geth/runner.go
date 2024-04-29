@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/holiman/uint256"
 	"github.com/spf13/cobra"
 )
 
@@ -43,40 +44,84 @@ var cmd = &cobra.Command{
 		callerAddress := common.BytesToAddress(common.FromHex("0x1000000000000000000000000000000000000001"))
 
 		config := params.MainnetChainConfig
-		rules := config.Rules(config.LondonBlock, false)
-		defaultGenesis := core.DefaultGenesisBlock()
-		genesis := &core.Genesis{
-			Config:     config,
-			Coinbase:   defaultGenesis.Coinbase,
-			Difficulty: defaultGenesis.Difficulty,
-			GasLimit:   defaultGenesis.GasLimit,
-			Number:     config.LondonBlock.Uint64(),
-			Timestamp:  defaultGenesis.Timestamp,
-			Alloc:      defaultGenesis.Alloc,
-		}
+		blockNumber := config.GrayGlacierBlock
+		blockTime := config.CancunTime
+		rules := config.Rules(blockNumber, true, *blockTime)
 
 		statedb, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
 		check(err)
 
 		zeroValue := big.NewInt(0)
 		gasLimit := ^uint64(0)
+		zeroHash := common.Hash{}
 
-		createMsg := types.NewMessage(callerAddress, &zeroAddress, 0, zeroValue, gasLimit, zeroValue, zeroValue, zeroValue, contractCodeBytes, types.AccessList{}, false)
-		statedb.PrepareAccessList(callerAddress, &zeroAddress, vm.ActivePrecompiles(rules), createMsg.AccessList())
+		blockContextHeader := types.Header{
+			ParentHash:       [32]byte{},
+			UncleHash:        [32]byte{},
+			Coinbase:         [20]byte{},
+			Root:             [32]byte{},
+			TxHash:           [32]byte{},
+			ReceiptHash:      [32]byte{},
+			Bloom:            [256]byte{},
+			Difficulty:       &big.Int{},
+			Number:           blockNumber,
+			GasLimit:         gasLimit,
+			GasUsed:          0,
+			Time:             *blockTime,
+			Extra:            []byte{},
+			MixDigest:        [32]byte{1},
+			Nonce:            [8]byte{},
+			BaseFee:          &big.Int{},
+			WithdrawalsHash:  &zeroHash,
+			BlobGasUsed:      new(uint64),
+			ExcessBlobGas:    new(uint64),
+			ParentBeaconRoot: &zeroHash,
+		}
+		blockContext := core.NewEVMBlockContext(&blockContextHeader, nil, &zeroAddress)
 
-		blockContext := core.NewEVMBlockContext(genesis.ToBlock().Header(), nil, &zeroAddress)
-		txContext := core.NewEVMTxContext(createMsg)
+		createMsg := core.Message{
+			To:                &zeroAddress,
+			From:              callerAddress,
+			Nonce:             0,
+			Value:             zeroValue,
+			GasLimit:          gasLimit,
+			GasPrice:          zeroValue,
+			GasFeeCap:         zeroValue,
+			GasTipCap:         zeroValue,
+			Data:              contractCodeBytes,
+			AccessList:        []types.AccessTuple{},
+			BlobGasFeeCap:     zeroValue,
+			BlobHashes:        []common.Hash{},
+			SkipAccountChecks: false,
+		}
+		txContext := core.NewEVMTxContext(&createMsg)
+
+		statedb.Prepare(rules, callerAddress, blockContext.Coinbase, &zeroAddress, vm.ActivePrecompiles(rules), createMsg.AccessList)
 		evm := vm.NewEVM(blockContext, txContext, statedb, config, vm.Config{})
-		_, contractAddress, _, err := evm.Create(vm.AccountRef(callerAddress), contractCodeBytes, gasLimit, new(big.Int))
+		_, contractAddress, _, err := evm.Create(vm.AccountRef(callerAddress), contractCodeBytes, gasLimit, uint256.NewInt(0))
 		check(err)
 
-		msg := types.NewMessage(callerAddress, &contractAddress, 1, zeroValue, gasLimit, zeroValue, zeroValue, zeroValue, calldataBytes, types.AccessList{}, false)
+		msg := core.Message{
+			To:                &contractAddress,
+			From:              callerAddress,
+			Nonce:             1,
+			Value:             zeroValue,
+			GasLimit:          gasLimit,
+			GasPrice:          zeroValue,
+			GasFeeCap:         zeroValue,
+			GasTipCap:         zeroValue,
+			Data:              calldataBytes,
+			AccessList:        []types.AccessTuple{},
+			BlobGasFeeCap:     zeroValue,
+			BlobHashes:        []common.Hash{},
+			SkipAccountChecks: false,
+		}
 		for i := 0; i < numRuns; i++ {
 			snapshot := statedb.Snapshot()
-			statedb.PrepareAccessList(msg.From(), msg.To(), vm.ActivePrecompiles(rules), msg.AccessList())
+			statedb.Prepare(rules, msg.From, blockContext.Coinbase, msg.To, vm.ActivePrecompiles(rules), msg.AccessList)
 
 			start := time.Now()
-			_, _, err := evm.Call(vm.AccountRef(callerAddress), *msg.To(), msg.Data(), msg.Gas(), msg.Value())
+			_, _, err := evm.Call(vm.AccountRef(callerAddress), *msg.To, msg.Data, msg.GasLimit, uint256.MustFromBig(msg.Value))
 			timeTaken := time.Since(start)
 
 			fmt.Println(float64(timeTaken.Microseconds()) / 1e3)

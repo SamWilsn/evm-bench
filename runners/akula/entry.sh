@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-set -e
+set -eo pipefail
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
-cargo run --profile=production --manifest-path $SCRIPT_DIR/Cargo.toml -- $@
+cargo run --profile=production --manifest-path "$SCRIPT_DIR/Cargo.toml" -- "$@"

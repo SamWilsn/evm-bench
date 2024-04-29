@@ -67,27 +67,28 @@ impl ResultsFormatted {
     }
 
     pub fn table(&self) -> Table {
-        let runner_times = self
+        let mut runner_times = self
             .runs
             .iter()
             .map(|(runner_name, benchmark_runs)| {
-                let avg = benchmark_runs.values().flat_map(|run| run.average()).sum::<Duration>();
+                let mut avg =
+                    benchmark_runs.values().flat_map(|run| run.average()).sum::<Duration>();
+                if avg == Duration::default() {
+                    avg = Duration::from_secs(1);
+                }
                 (runner_name, avg)
             })
-            .collect::<HashMap<_, _>>();
-
-        let mut runner_names: Vec<_> = self.runners.keys().collect();
-        runner_names.sort_by_key(|name| runner_times[name]);
-
-        let average_runner_times =
-            runner_names.iter().map(|name| runner_times[name]).collect::<Vec<_>>();
+            .collect::<Vec<_>>();
+        runner_times.sort_by_key(|(_, time)| *time);
+        let runner_names = || runner_times.iter().map(|(name, _)| *name);
+        let average_runner_times = || runner_times.iter().map(|(_, time)| time);
 
         let mut table = Table::new();
         table.load_preset(presets::ASCII_MARKDOWN);
 
         // Header.
         {
-            let header = runner_names.iter().map(|s| s.as_str());
+            let header = runner_names().map(String::as_str);
             let mut cells = Cells::from(iter::once("").chain(header));
             for cell in &mut cells.0 {
                 *cell = std::mem::replace(cell, Cell::new("")).set_alignment(CellAlignment::Center);
@@ -97,17 +98,15 @@ impl ResultsFormatted {
 
         // Sum of all average times.
         {
-            let row = average_runner_times.iter().map(|time| format!("{time:.3?}"));
+            let row = average_runner_times().map(|time| format!("{time:.3?}"));
             table.add_row(iter::once("**sum**".to_string()).chain(row));
         }
 
         // Relative times.
         {
-            let min = average_runner_times.iter().min().copied();
+            let min = average_runner_times().min();
             let min = min.map(|min| min.as_secs_f64()).unwrap_or(1.0);
-            let row = average_runner_times
-                .iter()
-                .map(|time| format!("{:.3?}x", time.as_secs_f64() / min));
+            let row = average_runner_times().map(|t| format!("{:.3?}x", t.as_secs_f64() / min));
             table.add_row(iter::once("**relative**".to_string()).chain(row));
         }
 
@@ -117,7 +116,7 @@ impl ResultsFormatted {
         for &benchmark_name in &benchmark_names {
             let mut row = Vec::with_capacity(self.runners.len() + 1);
             row.push(benchmark_name.clone());
-            for &runner_name in &runner_names {
+            for runner_name in runner_names() {
                 let run = &self.runs[runner_name][benchmark_name];
                 let time = run.average().map(|time| format!("{time:.3?}")).unwrap_or_default();
                 row.push(time);

@@ -78,9 +78,9 @@ fn build_benchmark(
     cmd.arg(docker_contract_path);
     trace!("cmd: {cmd:?}");
     let out = cmd.output()?;
-    trace!("stdout: {}", String::from_utf8(out.stdout).unwrap());
-    trace!("stderr: {}", String::from_utf8(out.stderr).unwrap());
-    ensure!(out.status.success(), "{}", out.status);
+    trace!("stdout: {}", String::from_utf8_lossy(&out.stdout));
+    trace!("stderr: {}", String::from_utf8_lossy(&out.stderr));
+    ensure!(out.status.success(), "could not build benchmark: {out:#?}");
 
     debug!("built benchmark {}", benchmark.name);
     Ok(BuiltBenchmark { benchmark: benchmark.clone(), result: BuildResult { contract_bin_path } })
@@ -95,28 +95,20 @@ pub fn build_benchmarks(
     info!("building {} benchmarks...", benchmarks.len());
     debug!("benchmarks: {}", benchmarks.iter().map(|b| &b.name).format(", "));
 
-    let mut results = Vec::<BuiltBenchmark>::new();
+    let mut results = Vec::<BuiltBenchmark>::with_capacity(benchmarks.len());
     for benchmark in benchmarks {
-        results.push(
-            match build_benchmark(
-                benchmark,
-                force,
-                &BuildContext {
-                    docker_executable: docker_executable.to_path_buf(),
-                    contract_path: benchmark.contract.clone(),
-                    contract_context_path: benchmark.build_context.clone(),
-                    build_path: builds_path.join(&benchmark.name),
-                },
-            ) {
-                Ok(res) => res,
-                Err(e) => {
-                    warn!("could not build benchmark {}: {e}", benchmark.name);
-                    continue;
-                }
+        results.push(build_benchmark(
+            benchmark,
+            force,
+            &BuildContext {
+                docker_executable: docker_executable.to_path_buf(),
+                contract_path: benchmark.contract.clone(),
+                contract_context_path: benchmark.build_context.clone(),
+                build_path: builds_path.join(&benchmark.name),
             },
-        );
+        )?);
     }
 
-    debug!("built {} benchmarks ({} successful)", benchmarks.len(), results.len());
+    debug!("built {} benchmarks", benchmarks.len());
     Ok(results)
 }

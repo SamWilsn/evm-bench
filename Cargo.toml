@@ -10,6 +10,7 @@ keywords = ["benchmark", "ethereum", "evm"]
 
 [workspace]
 members = ["./", "runners/revm/"]
+default-members = ["./"]
 resolver = "2"
 
 [dependencies]

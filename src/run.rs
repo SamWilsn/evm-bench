@@ -31,10 +31,10 @@ fn run_benchmark_on_runner(benchmark: &BuiltBenchmark, runner: &Runner) -> Resul
     cmd.arg("--num-runs").arg(&benchmark.benchmark.num_runs.to_string());
     trace!("cmd: {cmd:?}");
     let out = cmd.output()?;
-    let stdout = String::from_utf8(out.stdout).unwrap();
-    trace!("stdout: {}", stdout);
-    trace!("stderr: {}", String::from_utf8(out.stderr).unwrap());
-    ensure!(out.status.success(), "{}", out.status);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    trace!("stdout: {stdout}");
+    trace!("stderr: {}", String::from_utf8_lossy(&out.stderr));
+    ensure!(out.status.success(), "could not run benchmark: {}", out.status);
 
     let mut times: Vec<Duration> = Vec::new();
     for line in stdout.trim().lines() {

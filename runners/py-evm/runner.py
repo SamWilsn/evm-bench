@@ -1,20 +1,18 @@
-from typing import cast, Final
-
 import argparse
 import pathlib
 import time
+from typing import Final, cast
 
 import eth.abc
+import eth.chains.base
 import eth.consensus.pow
 import eth.constants
-import eth.chains.base
 import eth.db.atomic
 import eth.tools.builder.chain.builders
 import eth.vm.forks.berlin
 import eth_keys
 import eth_typing
 import eth_utils
-
 
 GAS_LIMIT: Final[int] = 1_000_000_000
 ZERO_ADDRESS: Final[eth_typing.Address] = eth.constants.ZERO_ADDRESS
@@ -30,6 +28,7 @@ CALLER_ADDRESS: Final[eth_typing.Address] = eth_typing.Address(
 
 
 def _load_contract_data(data_file_path: pathlib.Path) -> bytes:
+    assert data_file_path is not None, "Contract code path is required"
     with open(data_file_path, mode="r") as file:
         return bytes.fromhex(file.read())
 
@@ -38,14 +37,15 @@ def _construct_chain() -> eth.chains.base.MiningChain:
     chain_class = eth.chains.base.MiningChain.configure(
         __name__="TestChain",
         vm_configuration=(
-            (eth.constants.GENESIS_BLOCK_NUMBER, eth.vm.forks.berlin.BerlinVM),
+            (eth.constants.GENESIS_BLOCK_NUMBER, eth.vm.forks.cancun.CancunVM),
         ),
     )
     chain = chain_class.from_genesis(
         eth.db.atomic.AtomicDB(),
         genesis_params={
-            "difficulty": 1,
+            "difficulty": 0,
             "gas_limit": 2 * GAS_LIMIT,
+            "base_fee_per_gas": 0,
         },
     )
 
@@ -85,15 +85,18 @@ def _benchmark(
         data=call_data,
     )
     signed_tx = tx.as_signed_transaction(caller_private_key)
-    evm_message = evm.state.get_transaction_executor().build_evm_message(signed_tx)
+    tx_executor = evm.state.get_transaction_executor()
+    evm_message = tx_executor.build_evm_message(signed_tx)
 
     def bench() -> None:
-        evm.state.get_transaction_executor().build_computation(evm_message, signed_tx)
+        global computation
+        computation = tx_executor.build_computation(evm_message, signed_tx)
 
     for _ in range(num_runs):
         start = time.perf_counter_ns()
         bench()
         end = time.perf_counter_ns()
+        computation.raise_if_error()
         print((end - start) / 1e6)
 
 

@@ -1,21 +1,20 @@
 # evm-bench
 
-[![Rust](https://github.com/ziyadedher/evm-bench/actions/workflows/rust.yml/badge.svg)](https://github.com/ziyadedher/evm-bench/actions/workflows/rust.yml)
+[![CI](https://github.com/ziyadedher/evm-bench/actions/workflows/ci.yml/badge.svg)](https://github.com/ziyadedher/evm-bench/actions/workflows/ci.yml)
 
 **evm-bench is a suite of Ethereum Virtual Machine (EVM) stress tests and benchmarks.**
 
 evm-bench makes it easy to compare EVM performance in a scalable, standardized, and portable way.
 
-|                         | evmone | revm   | pyrevm | geth   | py-evm.pypy | py-evm.cpython | ethereumjs |
-| ----------------------- | ------ | ------ | ------ | ------ | ----------- | -------------- | ---------- |
-| **sum**                 | 66ms   | 84.8ms | 194ms  | 235ms  | 7.201s      | 19.0886s       | 146.3218s  |
-| **relative**            | 1.000x | 1.285x | 2.939x | 3.561x | 109.106x    | 289.221x       | 2216.997x  |
-|                         |        |        |        |        |             |                |            |
-| erc20.approval-transfer | 7ms    | 9.6ms  | 16.2ms | 17ms   | 425.2ms     | 1.13s          | 2.0006s    |
-| erc20.mint              | 5ms    | 6.4ms  | 14.8ms | 17.2ms | 334ms       | 1.1554s        | 3.1352s    |
-| erc20.transfer          | 8.6ms  | 11.6ms | 22.8ms | 24.6ms | 449.2ms     | 1.6172s        | 3.6564s    |
-| snailtracer             | 43ms   | 53ms   | 128ms  | 163ms  | 5.664s      | 13.675s        | 135.059s   |
-| ten-thousand-hashes     | 2.4ms  | 4.2ms  | 12.2ms | 13.2ms | 328.6ms     | 1.511s         | 2.4706s    |
+|                         | evmone    | revm      | pyrevm    | geth      | py-evm.pypy | ethereumjs | py-evm.cpython |
+|-------------------------|-----------|-----------|-----------|-----------|-------------|------------|----------------|
+| **sum**                 |  41.215ms |  51.224ms |  60.243ms | 210.643ms |    2.674s   |    5.834s  |   10.552s      |
+| **relative**            |     1.000 |     1.243 |     1.462 |     5.111 |    64.876   |   141.545  |   256.023      |
+| erc20.approval-transfer |   4.369ms |   5.000ms |   6.190ms |  16.238ms | 207.265ms   | 372.410ms  | 464.782ms      |
+| erc20.mint              |   3.052ms |   2.782ms |   5.118ms |  14.586ms | 182.160ms   | 450.998ms  | 473.278ms      |
+| erc20.transfer          |   5.156ms |   5.213ms |   8.433ms |  20.513ms | 218.318ms   | 574.967ms  | 682.717ms      |
+| snailtracer             |  25.656ms |  34.954ms |  37.122ms | 148.981ms |    1.953s   |    4.186s  |    8.487s      |
+| ten-thousand-hashes     |   2.982ms |   3.275ms |   3.379ms |  10.325ms | 112.729ms   | 249.071ms  | 444.163ms      |
 
 To reproduce these results, check out [usage with the evm-bench suite below](#with-the-evm-bench-suite).
 

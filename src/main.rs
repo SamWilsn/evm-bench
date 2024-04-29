@@ -5,7 +5,7 @@
 extern crate tracing;
 
 use clap::Parser;
-use color_eyre::eyre::{ensure, eyre, Result};
+use color_eyre::eyre::{ensure, eyre, Context, Result};
 use itertools::Itertools;
 use std::{fs, path::PathBuf};
 
@@ -28,7 +28,7 @@ use run::run_benchmarks_on_runners;
 #[derive(Debug, Parser)]
 struct Cli {
     /// Path to use as the base for benchmarks searching
-    #[arg(long, default_value = "./benchmarks")]
+    #[arg(long, default_value = "benchmarks")]
     benchmark_search_path: PathBuf,
 
     /// Names of benchmarks to run.
@@ -36,7 +36,7 @@ struct Cli {
     benchmarks: Option<Vec<String>>,
 
     /// Path to use as the base for runners searching
-    #[arg(short, long, default_value = "./runners")]
+    #[arg(short, long, default_value = "runners")]
     runner_search_path: PathBuf,
 
     /// Names of runners to use.
@@ -44,7 +44,7 @@ struct Cli {
     runners: Option<Vec<String>>,
 
     /// Output path for build artifacts and other things
-    #[arg(short, long, default_value = "./outputs")]
+    #[arg(short, long, default_value = "outputs")]
     output_path: PathBuf,
 
     /// Name of the output file, will not overwrite.
@@ -69,7 +69,7 @@ struct Cli {
     npm_executable: Option<PathBuf>,
 
     /// Path to benchmark metadata schema
-    #[arg(long, default_value = "./benchmarks/schema.json")]
+    #[arg(long, default_value = "benchmarks/schema.json")]
     benchmark_metadata_schema: PathBuf,
 
     /// Name of benchmark metadata file to search for
@@ -77,7 +77,7 @@ struct Cli {
     benchmark_metadata_name: String,
 
     /// Path to runner metadata schema
-    #[arg(long, default_value = "./runners/schema.json")]
+    #[arg(long, default_value = "runners/schema.json")]
     runner_metadata_schema: PathBuf,
 
     /// Name of benchmark metadata file to search
@@ -114,7 +114,8 @@ fn main() -> Result<()> {
     if let Some(path) = cli.display {
         let path = match path {
             Some(path) => path,
-            None => fs::read_dir(&cli.output_path.join("results"))?
+            None => fs::read_dir(&cli.output_path.join("results"))
+                .wrap_err("could not read results directory")?
                 .flatten()
                 .filter(|entry| entry.file_type().map(|ft| ft.is_file()).unwrap_or(false))
                 .map(|entry| entry.path())

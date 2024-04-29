@@ -15,27 +15,30 @@ use std::{
 };
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct ResultsFormatted {
+pub struct ResultsFormatted {
+    /// benchmark.name -> benchmark
     benchmarks: HashMap<String, Benchmark>,
+    /// runner.name -> runner
     runners: HashMap<String, Runner>,
+    /// runner.name -> benchmark.name -> result
     runs: HashMap<String, HashMap<String, RunResult>>,
 }
 
 impl ResultsFormatted {
     pub fn new(results: &Results) -> Self {
         Self {
-            benchmarks: results.keys().map(|b| (b.name.clone(), b.clone())).collect(),
-            runners: results
+            benchmarks: results
                 .values()
                 .flat_map(HashMap::keys)
-                .map(|r| (r.name.clone(), r.clone()))
+                .map(|b| (b.name.clone(), b.clone()))
                 .collect(),
+            runners: results.keys().map(|r| (r.name.clone(), r.clone())).collect(),
             runs: results
                 .iter()
-                .map(|(b, br)| {
+                .map(|(r, br)| {
                     (
-                        b.name.clone(),
-                        br.iter().map(|(r, rr)| (r.name.clone(), rr.clone())).collect(),
+                        r.name.clone(),
+                        br.iter().map(|(b, rr)| (b.name.clone(), rr.clone())).collect(),
                     )
                 })
                 .collect(),
@@ -43,7 +46,7 @@ impl ResultsFormatted {
     }
 
     pub fn load(path: &Path) -> Result<Self> {
-        info!("reading and parsing results from {}...", path.display());
+        info!("reading and parsing results from {} ...", path.display());
         let s = fs::read_to_string(path)?;
         let results = serde_json::from_str::<ResultsFormatted>(&s)?;
         debug!("read and parsed results from {}", path.display());
@@ -64,25 +67,20 @@ impl ResultsFormatted {
     }
 
     pub fn table(&self) -> Table {
+        let runner_times = self
+            .runs
+            .iter()
+            .map(|(runner_name, benchmark_runs)| {
+                let avg = benchmark_runs.values().flat_map(|run| run.average()).sum::<Duration>();
+                (runner_name, avg)
+            })
+            .collect::<HashMap<_, _>>();
+
         let mut runner_names: Vec<_> = self.runners.keys().collect();
-        runner_names.sort();
+        runner_names.sort_by_key(|name| runner_times[name]);
 
-        let mut runs = self.runs.iter().collect::<Vec<_>>();
-        runs.sort_by(|(a, _), (b, _)| a.cmp(b));
-
-        let mut runner_times = HashMap::<String, Vec<Duration>>::new();
-        for (run_name, benchmark_runs) in &runs {
-            for &runner_name in &runner_names {
-                let Some(run) = benchmark_runs.get(runner_name) else {
-                    warn!("no runs for {run_name}/{runner_name}");
-                    continue;
-                };
-                let avg_run_time =
-                    run.run_times.iter().sum::<Duration>().div_f64(run.run_times.len() as f64);
-                runner_times.entry(runner_name.clone()).or_default().push(avg_run_time);
-            }
-        }
-        runner_names.sort_by_key(|&name| runner_times[name].iter().sum::<Duration>());
+        let average_runner_times =
+            runner_names.iter().map(|name| runner_times[name]).collect::<Vec<_>>();
 
         let mut table = Table::new();
         table.load_preset(presets::ASCII_MARKDOWN);
@@ -97,47 +95,34 @@ impl ResultsFormatted {
             table.set_header(cells);
         }
 
-        let average_runner_times = runner_times
-            .iter()
-            .map(|(name, times)| (name, times.iter().sum::<Duration>()))
-            .collect::<HashMap<_, _>>();
-        // Sum of all times.
+        // Sum of all average times.
         {
-            let row = runner_names
-                .iter()
-                .map(|&runner_name| average_runner_times.get(runner_name))
-                .map(|val: Option<&Duration>| Some(format!("{:.3?}", val?)))
-                .map(|s| s.unwrap_or_default());
+            let row = average_runner_times.iter().map(|time| format!("{time:.3?}"));
             table.add_row(iter::once("**sum**".to_string()).chain(row));
         }
 
         // Relative times.
         {
-            let min_runner_time =
-                average_runner_times.values().min().copied().unwrap_or(Duration::from_secs(1));
-            let row = runner_names
+            let min = average_runner_times.iter().min().copied();
+            let min = min.map(|min| min.as_secs_f64()).unwrap_or(1.0);
+            let row = average_runner_times
                 .iter()
-                .map(|&name| {
-                    average_runner_times.get(name).map(|time| {
-                        format!("{:.3?}x", time.as_secs_f64() / min_runner_time.as_secs_f64())
-                    })
-                })
-                .map(Option::unwrap_or_default);
+                .map(|time| format!("{:.3?}x", time.as_secs_f64() / min));
             table.add_row(iter::once("**relative**".to_string()).chain(row));
         }
 
         // Individual runs.
-        for &(benchmark_name, benchmark_runs) in runs.iter() {
-            let vals = runner_names.iter().map(|&runner_name| {
-                let run = benchmark_runs.get(runner_name)?;
-                let avg_run_time =
-                    run.run_times.iter().sum::<Duration>().div_f64(run.run_times.len() as f64);
-                runner_times.entry(runner_name.clone()).or_default().push(avg_run_time);
-                Some(avg_run_time)
-            });
-
-            let row = vals.map(|val| val.map(|time| format!("{time:.3?}")).unwrap_or_default());
-            table.add_row(iter::once(benchmark_name.clone()).chain(row));
+        let mut benchmark_names: Vec<_> = self.benchmarks.keys().collect();
+        benchmark_names.sort();
+        for &benchmark_name in &benchmark_names {
+            let mut row = Vec::with_capacity(self.runners.len() + 1);
+            row.push(benchmark_name.clone());
+            for &runner_name in &runner_names {
+                let run = &self.runs[runner_name][benchmark_name];
+                let time = run.average().map(|time| format!("{time:.3?}")).unwrap_or_default();
+                row.push(time);
+            }
+            table.add_row(row);
         }
 
         let mut columns = table.column_iter_mut();
@@ -180,7 +165,7 @@ mod tests {
     use expect_test::expect;
 
     fn example_results() -> ResultsFormatted {
-        let s = r#"{"benchmarks":{"erc20.mint":{"name":"erc20.mint","solc_version":"stable","num_runs":5,"contract":"$ROOT/benchmarks/erc20/mint/ERC20Mint.sol","build_context":"$ROOT/benchmarks/erc20","calldata":"0x30627b7c"},"snailtracer":{"name":"snailtracer","solc_version":"0.4.26","num_runs":1,"contract":"$ROOT/benchmarks/snailtracer/SnailTracer.sol","build_context":"$ROOT/benchmarks/snailtracer","calldata":"0x30627b7c"},"ten-thousand-hashes":{"name":"ten-thousand-hashes","solc_version":"stable","num_runs":5,"contract":"$ROOT/benchmarks/ten-thousand-hashes/TenThousandHashes.sol","build_context":"$ROOT/benchmarks/ten-thousand-hashes","calldata":"0x30627b7c"},"erc20.transfer":{"name":"erc20.transfer","solc_version":"stable","num_runs":5,"contract":"$ROOT/benchmarks/erc20/transfer/ERC20Transfer.sol","build_context":"$ROOT/benchmarks/erc20","calldata":"0x30627b7c"},"erc20.approval-transfer":{"name":"erc20.approval-transfer","solc_version":"stable","num_runs":5,"contract":"$ROOT/benchmarks/erc20/approval-transfer/ERC20ApprovalTransfer.sol","build_context":"$ROOT/benchmarks/erc20","calldata":"0x30627b7c"}},"runners":{"revm":{"name":"revm","entry":"$ROOT/runners/revm/entry.sh"},"pyrevm":{"name":"pyrevm","entry":"$ROOT/runners/pyrevm/entry.sh"},"py-evm.pypy":{"name":"py-evm.pypy","entry":"$ROOT/runners/py-evm/pypy/entry.sh"},"py-evm.cpython":{"name":"py-evm.cpython","entry":"$ROOT/runners/py-evm/cpython/entry.sh"},"ethereumjs":{"name":"ethereumjs","entry":"$ROOT/runners/ethereumjs/entry.sh"},"evmone":{"name":"evmone","entry":"$ROOT/runners/evmone/entry.sh"},"geth":{"name":"geth","entry":"$ROOT/runners/geth/entry.sh"}},"runs":{"erc20.transfer":{"ethereumjs":{"run_times":[{"secs":0,"nanos":595451391},{"secs":0,"nanos":576946801},{"secs":0,"nanos":570141738},{"secs":0,"nanos":569878842},{"secs":0,"nanos":562415831}]},"evmone":{"run_times":[{"secs":0,"nanos":5327950},{"secs":0,"nanos":5102470},{"secs":0,"nanos":5184160},{"secs":0,"nanos":5071660},{"secs":0,"nanos":5093910}]},"geth":{"run_times":[{"secs":0,"nanos":21826000},{"secs":0,"nanos":20110000},{"secs":0,"nanos":19655000},{"secs":0,"nanos":20432000},{"secs":0,"nanos":20542000}]},"pyrevm":{"run_times":[{"secs":0,"nanos":8328796},{"secs":0,"nanos":8165877},{"secs":0,"nanos":7837010},{"secs":0,"nanos":7751586},{"secs":0,"nanos":10080772}]},"py-evm.pypy":{"run_times":[{"secs":0,"nanos":663633186},{"secs":0,"nanos":100202777},{"secs":0,"nanos":129912799},{"secs":0,"nanos":97360300},{"secs":0,"nanos":100479148}]},"revm":{"run_times":[{"secs":0,"nanos":5492564},{"secs":0,"nanos":5126171},{"secs":0,"nanos":5263780},{"secs":0,"nanos":5084653},{"secs":0,"nanos":5096012}]},"py-evm.cpython":{"run_times":[{"secs":0,"nanos":670503052},{"secs":0,"nanos":685093042},{"secs":0,"nanos":680752008},{"secs":0,"nanos":684123476},{"secs":0,"nanos":693111643}]}},"ten-thousand-hashes":{"py-evm.pypy":{"run_times":[{"secs":0,"nanos":310507406},{"secs":0,"nanos":60379774},{"secs":0,"nanos":57932332},{"secs":0,"nanos":80748299},{"secs":0,"nanos":54078439}]},"py-evm.cpython":{"run_times":[{"secs":0,"nanos":448843086},{"secs":0,"nanos":444881060},{"secs":0,"nanos":441763728},{"secs":0,"nanos":442264499},{"secs":0,"nanos":443060202}]},"pyrevm":{"run_times":[{"secs":0,"nanos":3525772},{"secs":0,"nanos":3450557},{"secs":0,"nanos":3348263},{"secs":0,"nanos":3291325},{"secs":0,"nanos":3280306}]},"ethereumjs":{"run_times":[{"secs":0,"nanos":259935437},{"secs":0,"nanos":248871553},{"secs":0,"nanos":243637159},{"secs":0,"nanos":246385007},{"secs":0,"nanos":246527254}]},"geth":{"run_times":[{"secs":0,"nanos":10305000},{"secs":0,"nanos":9822000},{"secs":0,"nanos":9849000},{"secs":0,"nanos":10478000},{"secs":0,"nanos":11173000}]},"evmone":{"run_times":[{"secs":0,"nanos":2965440},{"secs":0,"nanos":2873140},{"secs":0,"nanos":2662000},{"secs":0,"nanos":2743540},{"secs":0,"nanos":3663830}]},"revm":{"run_times":[{"secs":0,"nanos":3358962},{"secs":0,"nanos":3453596},{"secs":0,"nanos":3194841},{"secs":0,"nanos":3203581},{"secs":0,"nanos":3163063}]}},"erc20.mint":{"py-evm.cpython":{"run_times":[{"secs":0,"nanos":474708248},{"secs":0,"nanos":479187710},{"secs":0,"nanos":473000755},{"secs":0,"nanos":470173888},{"secs":0,"nanos":469321850}]},"py-evm.pypy":{"run_times":[{"secs":0,"nanos":608120606},{"secs":0,"nanos":68161369},{"secs":0,"nanos":69981356},{"secs":0,"nanos":95211630},{"secs":0,"nanos":69322679}]},"pyrevm":{"run_times":[{"secs":0,"nanos":5328567},{"secs":0,"nanos":5261634},{"secs":0,"nanos":5083386},{"secs":0,"nanos":4969432},{"secs":0,"nanos":4948411}]},"revm":{"run_times":[{"secs":0,"nanos":3116352},{"secs":0,"nanos":2735126},{"secs":0,"nanos":2713626},{"secs":0,"nanos":2682024},{"secs":0,"nanos":2661823}]},"evmone":{"run_times":[{"secs":0,"nanos":3679190},{"secs":0,"nanos":2801370},{"secs":0,"nanos":2838230},{"secs":0,"nanos":3191520},{"secs":0,"nanos":2749040}]},"geth":{"run_times":[{"secs":0,"nanos":15492000},{"secs":0,"nanos":13582000},{"secs":0,"nanos":14501000},{"secs":0,"nanos":14682000},{"secs":0,"nanos":14671000}]},"ethereumjs":{"run_times":[{"secs":0,"nanos":470614560},{"secs":0,"nanos":459002884},{"secs":0,"nanos":443231753},{"secs":0,"nanos":444097641},{"secs":0,"nanos":438044964}]}},"snailtracer":{"geth":{"run_times":[{"secs":0,"nanos":148981000}]},"revm":{"run_times":[{"secs":0,"nanos":34953920}]},"py-evm.cpython":{"run_times":[{"secs":8,"nanos":486977188}]},"py-evm.pypy":{"run_times":[{"secs":1,"nanos":953374715}]},"ethereumjs":{"run_times":[{"secs":4,"nanos":186305557}]},"evmone":{"run_times":[{"secs":0,"nanos":25656300}]},"pyrevm":{"run_times":[{"secs":0,"nanos":37122468}]}},"erc20.approval-transfer":{"py-evm.pypy":{"run_times":[{"secs":0,"nanos":655602340},{"secs":0,"nanos":134665186},{"secs":0,"nanos":80479541},{"secs":0,"nanos":82446442},{"secs":0,"nanos":83133801}]},"revm":{"run_times":[{"secs":0,"nanos":4539161},{"secs":0,"nanos":5307885},{"secs":0,"nanos":4506030},{"secs":0,"nanos":6185761},{"secs":0,"nanos":4463649}]},"pyrevm":{"run_times":[{"secs":0,"nanos":6497804},{"secs":0,"nanos":6183122},{"secs":0,"nanos":6129618},{"secs":0,"nanos":6086518},{"secs":0,"nanos":6054345}]},"ethereumjs":{"run_times":[{"secs":0,"nanos":407679168},{"secs":0,"nanos":365384613},{"secs":0,"nanos":363423684},{"secs":0,"nanos":365881312},{"secs":0,"nanos":359681715}]},"evmone":{"run_times":[{"secs":0,"nanos":4482580},{"secs":0,"nanos":4451460},{"secs":0,"nanos":4296120},{"secs":0,"nanos":4291810},{"secs":0,"nanos":4322720}]},"py-evm.cpython":{"run_times":[{"secs":0,"nanos":470308903},{"secs":0,"nanos":467006699},{"secs":0,"nanos":477113127},{"secs":0,"nanos":457630123},{"secs":0,"nanos":451851282}]},"geth":{"run_times":[{"secs":0,"nanos":14790000},{"secs":0,"nanos":13953000},{"secs":0,"nanos":13494000},{"secs":0,"nanos":22779000},{"secs":0,"nanos":16174000}]}}}}"#;
+        let s = r#"{"benchmarks":{"snailtracer":{"name":"snailtracer","solc_version":"0.4.26","num_runs":1,"contract":"/home/doni/github/danipopes/evm-bench/benchmarks/snailtracer/SnailTracer.sol","build_context":"/home/doni/github/danipopes/evm-bench/benchmarks/snailtracer","calldata":"0x30627b7c"},"erc20.approval-transfer":{"name":"erc20.approval-transfer","solc_version":"stable","num_runs":5,"contract":"/home/doni/github/danipopes/evm-bench/benchmarks/erc20/approval-transfer/ERC20ApprovalTransfer.sol","build_context":"/home/doni/github/danipopes/evm-bench/benchmarks/erc20","calldata":"0x30627b7c"},"erc20.mint":{"name":"erc20.mint","solc_version":"stable","num_runs":5,"contract":"/home/doni/github/danipopes/evm-bench/benchmarks/erc20/mint/ERC20Mint.sol","build_context":"/home/doni/github/danipopes/evm-bench/benchmarks/erc20","calldata":"0x30627b7c"},"ten-thousand-hashes":{"name":"ten-thousand-hashes","solc_version":"stable","num_runs":5,"contract":"/home/doni/github/danipopes/evm-bench/benchmarks/ten-thousand-hashes/TenThousandHashes.sol","build_context":"/home/doni/github/danipopes/evm-bench/benchmarks/ten-thousand-hashes","calldata":"0x30627b7c"},"erc20.transfer":{"name":"erc20.transfer","solc_version":"stable","num_runs":5,"contract":"/home/doni/github/danipopes/evm-bench/benchmarks/erc20/transfer/ERC20Transfer.sol","build_context":"/home/doni/github/danipopes/evm-bench/benchmarks/erc20","calldata":"0x30627b7c"}},"runners":{"py-evm.pypy":{"name":"py-evm.pypy","entry":"/home/doni/github/danipopes/evm-bench/runners/py-evm/pypy/entry.sh"},"py-evm.cpython":{"name":"py-evm.cpython","entry":"/home/doni/github/danipopes/evm-bench/runners/py-evm/cpython/entry.sh"},"revm":{"name":"revm","entry":"/home/doni/github/danipopes/evm-bench/runners/revm/entry.sh"},"geth":{"name":"geth","entry":"/home/doni/github/danipopes/evm-bench/runners/geth/entry.sh"},"pyrevm":{"name":"pyrevm","entry":"/home/doni/github/danipopes/evm-bench/runners/pyrevm/entry.sh"},"ethereumjs":{"name":"ethereumjs","entry":"/home/doni/github/danipopes/evm-bench/runners/ethereumjs/entry.sh"},"evmone":{"name":"evmone","entry":"/home/doni/github/danipopes/evm-bench/runners/evmone/entry.sh"}},"runs":{"pyrevm":{"erc20.approval-transfer":{"run_times":[{"secs":0,"nanos":6213942},{"secs":0,"nanos":6126792},{"secs":0,"nanos":5973983},{"secs":0,"nanos":5851282},{"secs":0,"nanos":5906892}]},"ten-thousand-hashes":{"run_times":[{"secs":0,"nanos":3496145},{"secs":0,"nanos":3477746},{"secs":0,"nanos":3316006},{"secs":0,"nanos":3304595},{"secs":0,"nanos":3309506}]},"erc20.mint":{"run_times":[{"secs":0,"nanos":5259613},{"secs":0,"nanos":5173433},{"secs":0,"nanos":4930204},{"secs":0,"nanos":4880953},{"secs":0,"nanos":4854174}]},"snailtracer":{"run_times":[{"secs":0,"nanos":38593150}]},"erc20.transfer":{"run_times":[{"secs":0,"nanos":8016020},{"secs":0,"nanos":7953489},{"secs":0,"nanos":7624840},{"secs":0,"nanos":7581321},{"secs":0,"nanos":7709040}]}},"py-evm.pypy":{"erc20.transfer":{"run_times":[{"secs":0,"nanos":666712250},{"secs":0,"nanos":113529972},{"secs":0,"nanos":115125600},{"secs":0,"nanos":97980862},{"secs":0,"nanos":97463883}]},"ten-thousand-hashes":{"run_times":[{"secs":0,"nanos":245686551},{"secs":0,"nanos":72411196},{"secs":0,"nanos":84104591},{"secs":0,"nanos":57956555},{"secs":0,"nanos":55027828}]},"erc20.mint":{"run_times":[{"secs":0,"nanos":602120593},{"secs":0,"nanos":68984960},{"secs":0,"nanos":66633063},{"secs":0,"nanos":92249950},{"secs":0,"nanos":67860521}]},"erc20.approval-transfer":{"run_times":[{"secs":0,"nanos":704793647},{"secs":0,"nanos":86125888},{"secs":0,"nanos":104097935},{"secs":0,"nanos":75341292},{"secs":0,"nanos":70642277}]},"snailtracer":{"run_times":[{"secs":2,"nanos":37957059}]}},"py-evm.cpython":{"erc20.transfer":{"run_times":[{"secs":0,"nanos":695363341},{"secs":0,"nanos":699074336},{"secs":0,"nanos":698104309},{"secs":0,"nanos":693895863},{"secs":0,"nanos":682253360}]},"snailtracer":{"run_times":[{"secs":7,"nanos":836818776}]},"ten-thousand-hashes":{"run_times":[{"secs":0,"nanos":449524650},{"secs":0,"nanos":443475368},{"secs":0,"nanos":441195272},{"secs":0,"nanos":443785247},{"secs":0,"nanos":442646500}]},"erc20.approval-transfer":{"run_times":[{"secs":0,"nanos":457147154},{"secs":0,"nanos":460718788},{"secs":0,"nanos":454535988},{"secs":0,"nanos":455645835},{"secs":0,"nanos":456859195}]},"erc20.mint":{"run_times":[{"secs":0,"nanos":496261353},{"secs":0,"nanos":500230198},{"secs":0,"nanos":489338882},{"secs":0,"nanos":490074021},{"secs":0,"nanos":491134510}]}},"geth":{"snailtracer":{"run_times":[{"secs":0,"nanos":148105000}]},"erc20.approval-transfer":{"run_times":[{"secs":0,"nanos":14793000},{"secs":0,"nanos":14032000},{"secs":0,"nanos":13466000},{"secs":0,"nanos":15026000},{"secs":0,"nanos":16541000}]},"erc20.mint":{"run_times":[{"secs":0,"nanos":14717000},{"secs":0,"nanos":13011000},{"secs":0,"nanos":13830000},{"secs":0,"nanos":14612000},{"secs":0,"nanos":15242000}]},"erc20.transfer":{"run_times":[{"secs":0,"nanos":24250000},{"secs":0,"nanos":20038000},{"secs":0,"nanos":19945000},{"secs":0,"nanos":19619000},{"secs":0,"nanos":19804000}]},"ten-thousand-hashes":{"run_times":[{"secs":0,"nanos":11379000},{"secs":0,"nanos":9792000},{"secs":0,"nanos":10106000},{"secs":0,"nanos":9665000},{"secs":0,"nanos":9481000}]}},"ethereumjs":{"erc20.approval-transfer":{"run_times":[{"secs":0,"nanos":410379118},{"secs":0,"nanos":387112689},{"secs":0,"nanos":373439418},{"secs":0,"nanos":375011307},{"secs":0,"nanos":382830976}]},"snailtracer":{"run_times":[{"secs":4,"nanos":341908667}]},"erc20.mint":{"run_times":[{"secs":0,"nanos":481914363},{"secs":0,"nanos":463607198},{"secs":0,"nanos":450915694},{"secs":0,"nanos":447671290},{"secs":0,"nanos":456229468}]},"erc20.transfer":{"run_times":[{"secs":0,"nanos":624806792},{"secs":0,"nanos":614366697},{"secs":0,"nanos":607304596},{"secs":0,"nanos":597486090},{"secs":0,"nanos":590809629}]},"ten-thousand-hashes":{"run_times":[{"secs":0,"nanos":272472237},{"secs":0,"nanos":254026711},{"secs":0,"nanos":251613454},{"secs":0,"nanos":252607793},{"secs":0,"nanos":251813734}]}},"evmone":{"ten-thousand-hashes":{"run_times":[{"secs":0,"nanos":2862040},{"secs":0,"nanos":2841480},{"secs":0,"nanos":2919490},{"secs":0,"nanos":2669210},{"secs":0,"nanos":2672860}]},"snailtracer":{"run_times":[{"secs":0,"nanos":25782900}]},"erc20.mint":{"run_times":[{"secs":0,"nanos":3120940},{"secs":0,"nanos":3040780},{"secs":0,"nanos":2993980},{"secs":0,"nanos":2972430},{"secs":0,"nanos":2870990}]},"erc20.approval-transfer":{"run_times":[{"secs":0,"nanos":4516020},{"secs":0,"nanos":4600520},{"secs":0,"nanos":4452840},{"secs":0,"nanos":4167770},{"secs":0,"nanos":4404270}]},"erc20.transfer":{"run_times":[{"secs":0,"nanos":5943050},{"secs":0,"nanos":5271690},{"secs":0,"nanos":5276930},{"secs":0,"nanos":5360110},{"secs":0,"nanos":5354380}]}},"revm":{"erc20.mint":{"run_times":[{"secs":0,"nanos":2915256},{"secs":0,"nanos":3021266},{"secs":0,"nanos":2622537},{"secs":0,"nanos":3050286},{"secs":0,"nanos":2648576}]},"erc20.approval-transfer":{"run_times":[{"secs":0,"nanos":4684525},{"secs":0,"nanos":4502454},{"secs":0,"nanos":4491694},{"secs":0,"nanos":4355524},{"secs":0,"nanos":4363034}]},"snailtracer":{"run_times":[{"secs":0,"nanos":32540318}]},"erc20.transfer":{"run_times":[{"secs":0,"nanos":5376304},{"secs":0,"nanos":4967194},{"secs":0,"nanos":5044953},{"secs":0,"nanos":4948674},{"secs":0,"nanos":4948763}]},"ten-thousand-hashes":{"run_times":[{"secs":0,"nanos":3410976},{"secs":0,"nanos":3741635},{"secs":0,"nanos":3281935},{"secs":0,"nanos":3165126},{"secs":0,"nanos":3180846}]}}}}"#;
         serde_json::from_str(s).unwrap()
     }
 
@@ -197,13 +182,13 @@ mod tests {
         let expect = expect![[r#"
             |                         |  evmone  |   revm   |  pyrevm  |    geth   | py-evm.pypy | ethereumjs | py-evm.cpython |
             |-------------------------|----------|----------|----------|-----------|-------------|------------|----------------|
-            |         **sum**         | 41.215ms | 51.224ms | 60.243ms | 210.643ms |      2.674s |     5.834s |        10.552s |
-            |       **relative**      |   1.000x |   1.243x |   1.462x |    5.111x |     64.876x |   141.545x |       256.023x |
-            | erc20.approval-transfer |  4.369ms |  5.000ms |  6.190ms |  16.238ms |   207.265ms |  372.410ms |      464.782ms |
-            |        erc20.mint       |  3.052ms |  2.782ms |  5.118ms |  14.586ms |   182.160ms |  450.998ms |      473.278ms |
-            |      erc20.transfer     |  5.156ms |  5.213ms |  8.433ms |  20.513ms |   218.318ms |  574.967ms |      682.717ms |
-            |       snailtracer       | 25.656ms | 34.954ms | 37.122ms | 148.981ms |      1.953s |     4.186s |         8.487s |
-            |   ten-thousand-hashes   |  2.982ms |  3.275ms |  3.379ms |  10.325ms |   112.729ms |  249.071ms |      444.163ms |"#]];
+            |         **sum**         | 41.445ms | 48.285ms | 60.785ms | 207.975ms |      2.747s |     6.051s |         9.925s |
+            |       **relative**      |   1.000x |   1.165x |   1.467x |    5.018x |     66.278x |   146.004x |       239.474x |
+            | erc20.approval-transfer |  4.428ms |  4.479ms |  6.015ms |  14.772ms |   208.200ms |  385.755ms |      456.981ms |
+            |        erc20.mint       |  3.000ms |  2.852ms |  5.020ms |  14.282ms |   179.570ms |  460.068ms |      493.408ms |
+            |      erc20.transfer     |  5.441ms |  5.057ms |  7.777ms |  20.731ms |   218.163ms |  606.955ms |      693.738ms |
+            |       snailtracer       | 25.783ms | 32.540ms | 38.593ms | 148.105ms |      2.038s |     4.342s |         7.837s |
+            |   ten-thousand-hashes   |  2.793ms |  3.356ms |  3.381ms |  10.085ms |   103.037ms |  256.507ms |      444.125ms |"#]];
         expect.assert_eq(&example_results().table().to_string());
     }
 }

@@ -1,12 +1,13 @@
+from typing import cast, Final
+
+import timeit
 import argparse
 import pathlib
-import time
-from typing import Final, cast
 
 import eth.abc
-import eth.chains.base
 import eth.consensus.pow
 import eth.constants
+import eth.chains.base
 import eth.db.atomic
 import eth.tools.builder.chain.builders
 import eth.vm.forks.berlin
@@ -14,10 +15,14 @@ import eth_keys
 import eth_typing
 import eth_utils
 
+
+GAS_PRICE: Final[int] = 875_000_000
 GAS_LIMIT: Final[int] = 1_000_000_000
 ZERO_ADDRESS: Final[eth_typing.Address] = eth.constants.ZERO_ADDRESS
 
-CALLER_PRIVATE_KEY: Final[eth_keys.keys.PrivateKey] = eth_keys.keys.PrivateKey(
+CALLER_PRIVATE_KEY: Final[
+    eth_keys.datatypes.PrivateKey
+] = eth_keys.datatypes.PrivateKey(
     eth_utils.hexadecimal.decode_hex(
         "0x45a915e4d060149eb4365960e6a7a45f334393093061116b197e3240065ff2d8"
     )
@@ -28,7 +33,6 @@ CALLER_ADDRESS: Final[eth_typing.Address] = eth_typing.Address(
 
 
 def _load_contract_data(data_file_path: pathlib.Path) -> bytes:
-    assert data_file_path is not None, "Contract code path is required"
     with open(data_file_path, mode="r") as file:
         return bytes.fromhex(file.read())
 
@@ -45,7 +49,14 @@ def _construct_chain() -> eth.chains.base.MiningChain:
         genesis_params={
             "difficulty": 0,
             "gas_limit": 2 * GAS_LIMIT,
-            "base_fee_per_gas": 0,
+        },
+        genesis_state={
+            CALLER_ADDRESS: {
+                "balance": 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,
+                "nonce": 0,
+                "code": b"",
+                "storage": {},
+            }
         },
     )
 
@@ -55,7 +66,7 @@ def _construct_chain() -> eth.chains.base.MiningChain:
 def _benchmark(
     chain: eth.chains.base.MiningChain,
     caller_address: eth_typing.Address,
-    caller_private_key: eth_keys.keys.PrivateKey,
+    caller_private_key: eth_keys.datatypes.PrivateKey,
     contract_code: bytes,
     call_data: bytes,
     num_runs: int,
@@ -64,7 +75,7 @@ def _benchmark(
     nonce = evm.state.get_nonce(caller_address)
     tx = evm.create_unsigned_transaction(
         nonce=nonce,
-        gas_price=0,
+        gas_price=GAS_PRICE,
         gas=GAS_LIMIT,
         to=eth.constants.CREATE_CONTRACT_ADDRESS,
         value=0,
@@ -78,7 +89,7 @@ def _benchmark(
     nonce = evm.state.get_nonce(caller_address)
     tx = evm.create_unsigned_transaction(
         nonce=nonce,
-        gas_price=0,
+        gas_price=GAS_PRICE,
         gas=GAS_LIMIT,
         to=contract_address,
         value=0,
@@ -89,15 +100,16 @@ def _benchmark(
     evm_message = tx_executor.build_evm_message(signed_tx)
 
     def bench() -> None:
-        global computation
+        nonlocal computation
         computation = tx_executor.build_computation(evm_message, signed_tx)
 
-    for _ in range(num_runs):
-        start = time.perf_counter_ns()
-        bench()
-        end = time.perf_counter_ns()
+    results = timeit.repeat(bench, number=1, repeat=num_runs)
+
+    if computation is not None:
         computation.raise_if_error()
-        print((end - start) / 1e6)
+
+    for result in results:
+        print(result * 1000)
 
 
 def parse_args() -> argparse.Namespace:

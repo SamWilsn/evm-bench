@@ -6,8 +6,13 @@ authors = ["Ziyad Edher <ziyad.edher@gmail.com>"]
 package-mode = false
 
 [tool.poetry.dependencies]
-python = "^3.8"
-py-evm = "^0.10.1b1"
+python = "^3.9"
+py-evm = "^0.10.1-beta.1"
+setuptools = "^70.1.1"
+
+[tool.poetry.dev-dependencies]
+mypy = "^1.0.0"
+black = "^23.0.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
